@@ -1,12 +1,10 @@
-import { createRootRoute, Outlet } from "@tanstack/react-router";
+import { createRootRoute, Outlet } from "@tanstack/react-router"
+import AppLayout from "../components/layout/AppLayout"
 
 export const Route = createRootRoute({
   component: () => (
-    <Outlet />
+    <AppLayout>
+      <Outlet />
+    </AppLayout>
   ),
-  notFoundComponent: () => (
-    <div className="p-2">
-      <h1>404</h1>
-    </div>
-  ),
-});
+})
