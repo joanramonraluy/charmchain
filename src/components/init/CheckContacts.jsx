@@ -13,19 +13,20 @@ export default function CheckContacts() {
 
     const fetchContacts = async () => {
       try {
-        console.log("✅ MDS loaded, consultant contactes Maxima...")
-        const res = await MDS.cmd.maxcontacts()
+        console.log("✅ MDS carregat, consultant contactes...")
+        const res = await MDS.runCommand("maxcontacts")
 
-        console.log("📡 Resposta MDS:", res)
+        console.log("📡 Resposta MDS:", JSON.stringify(res, null, 2))
 
-        if (res.status && res.response.contacts) {
-          setContacts(res.response.contacts)
+        // Els contactes venen a res.contacts
+        if (res.contacts && Array.isArray(res.contacts)) {
+          setContacts(res.contacts)
         } else {
-          console.warn("⚠️ Cap contacte retornat o resposta buida:", res)
+          console.warn("⚠️ Cap contacte retornat o format desconegut:", res)
           setContacts([])
         }
       } catch (err) {
-        console.error("🚨 Error en obtenir contactes:", err)
+        console.error("🚨 Error obtenint contactes:", err)
         setError(err.message || "Error desconegut")
       } finally {
         setLoading(false)
@@ -46,7 +47,8 @@ export default function CheckContacts() {
         <ul>
           {contacts.map((c, i) => (
             <li key={i}>
-              {c.name || "(Sense nom)"} — {c.maximaaddress}
+              {c.extradata?.name || "(Sense nom)"} —{" "}
+              {c.currentaddress || c.extradata?.minimaaddress}
             </li>
           ))}
         </ul>
