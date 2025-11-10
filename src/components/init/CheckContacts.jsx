@@ -15,12 +15,10 @@ export default function CheckContacts() {
 
     const fetchContacts = async () => {
       try {
-        console.log("✅ MDS carregat, consultant contactes...");
-
+        console.log("✅ MDS loaded, fetching contacts...");
         const res = await MDS.cmd.maxcontacts();
-        console.log("📡 Resposta completa MDS:", res);
+        console.log("📡 Full MDS response:", res);
 
-        // La resposta pot tenir diversos formats segons la versió del node
         let list = [];
 
         if (res?.response?.contacts && Array.isArray(res.response.contacts)) {
@@ -31,12 +29,12 @@ export default function CheckContacts() {
           list = res;
         }
 
-        console.log("📇 Contactes trobats:", list);
+        console.log("📇 Contacts found:", list);
 
         if (isMounted) setContacts(list);
       } catch (err) {
-        console.error("🚨 Error obtenint contactes:", err);
-        if (isMounted) setError(err.message || "Error desconegut");
+        console.error("🚨 Error fetching contacts:", err);
+        if (isMounted) setError(err.message || "Unknown error");
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -49,43 +47,81 @@ export default function CheckContacts() {
     };
   }, [loaded]);
 
-  if (!loaded) return <p>⏳ Esperant Minima...</p>;
-  if (loading) return <p>🔄 Carregant contactes...</p>;
+  if (!loaded) return <p>⏳ Waiting for Minima...</p>;
+  if (loading) return <p>🔄 Loading contacts...</p>;
   if (error) return <p>⚠️ Error: {error}</p>;
+
+  const defaultAvatar =
+    "data:image/svg+xml;base64," +
+    btoa(
+      `<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'>
+        <circle cx='24' cy='24' r='24' fill='#ccc'/>
+        <text x='50%' y='55%' text-anchor='middle' font-size='20' fill='white' dy='.3em'>?</text>
+      </svg>`
+    );
+
+  const getAvatar = (contact) => {
+    if (contact.extradata?.icon) {
+      try {
+        const decoded = decodeURIComponent(contact.extradata.icon);
+        if (decoded.startsWith("data:image")) return decoded;
+      } catch (err) {
+        console.warn("⚠️ Error decoding avatar:", err);
+      }
+    }
+    return defaultAvatar;
+  };
+
+  // Trunca adreça: 7 primers + ... + 5 darrers
+  const truncateAddress = (addr) => {
+    if (!addr) return "(No address)";
+    if (addr.length <= 12) return addr;
+    return `${addr.slice(0, 7)}...${addr.slice(-5)}`;
+  };
 
   return (
     <div>
-      <h3>💌 Contactes Maxima</h3>
       {contacts.length > 0 ? (
-        <ul>
+        <ul style={{ listStyle: "none", padding: 0 }}>
           {contacts.map((c, i) => (
-            <li key={i} style={{ marginBottom: "0.5rem" }}>
-              <strong>{c.extradata?.name || "(Sense nom)"}</strong>
-              <br />
-              🪪{" "}
-              {c.currentaddress ||
-                c.extradata?.minimaaddress ||
-                "(Sense adreça)"}
-              {c.extradata?.publickey && (
-                <>
-                  <br />
-                  🔑 {c.extradata.publickey.slice(0, 16)}...
-                </>
-              )}
-              {c.extradata?.avatar && (
-                <div>
-                  <img
-                    src={c.extradata.avatar}
-                    alt="avatar"
-                    style={{ width: 40, height: 40, borderRadius: "50%" }}
-                  />
-                </div>
-              )}
+            <li
+              key={i}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.8rem",
+                marginBottom: "0.8rem",
+                backgroundColor: "#f8f8f8",
+                padding: "0.6rem 1rem",
+                borderRadius: "12px",
+              }}
+            >
+              <img
+                src={getAvatar(c)}
+                alt={c.extradata?.name || "(No name)"}
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  border: "1px solid #ddd",
+                }}
+                onError={(e) => {
+                  e.target.src = defaultAvatar;
+                }}
+              />
+              <div>
+                <strong>{c.extradata?.name || "(No name)"}</strong>
+                <br />
+                <small style={{ color: "#555" }}>
+                  {truncateAddress(c.currentaddress || c.extradata?.minimaaddress)}
+                </small>
+              </div>
             </li>
           ))}
         </ul>
       ) : (
-        <p>📭 No hi ha contactes disponibles a Maxima.</p>
+        <p>📭 No contacts available in Maxima.</p>
       )}
     </div>
   );

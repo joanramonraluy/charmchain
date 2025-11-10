@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as InfoRouteImport } from './routes/info'
+import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as IndexRouteImport } from './routes/index'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -23,6 +24,11 @@ const InfoRoute = InfoRouteImport.update({
   path: '/info',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContactsRoute = ContactsRouteImport.update({
+  id: '/contacts',
+  path: '/contacts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,30 +37,34 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/contacts': typeof ContactsRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/contacts': typeof ContactsRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/contacts': typeof ContactsRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/info' | '/settings'
+  fullPaths: '/' | '/contacts' | '/info' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/info' | '/settings'
-  id: '__root__' | '/' | '/info' | '/settings'
+  to: '/' | '/contacts' | '/info' | '/settings'
+  id: '__root__' | '/' | '/contacts' | '/info' | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ContactsRoute: typeof ContactsRoute
   InfoRoute: typeof InfoRoute
   SettingsRoute: typeof SettingsRoute
 }
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InfoRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contacts': {
+      id: '/contacts'
+      path: '/contacts'
+      fullPath: '/contacts'
+      preLoaderRoute: typeof ContactsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ContactsRoute: ContactsRoute,
   InfoRoute: InfoRoute,
   SettingsRoute: SettingsRoute,
 }

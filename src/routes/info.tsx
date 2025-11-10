@@ -8,7 +8,7 @@ function Info() {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-semibold mb-4">Informació</h1>
-      <p className="text-gray-200">
+      <p>
         CharmChain és una DApp descentralitzada que permet enviar i rebre “charms”
         entre usuaris dins la xarxa Minima.
       </p>

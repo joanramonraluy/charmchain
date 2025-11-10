@@ -1,45 +1,64 @@
-import { Link, useRouterState } from "@tanstack/react-router"
-import { Home, Settings, Info, X } from "lucide-react"
+import { useEffect, useRef } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Home, Settings, Info, Users, X } from "lucide-react";
 
-export default function SideMenu({
-  isOpen,
-  setIsOpen,
-}: {
-  isOpen: boolean
-  setIsOpen: (v: boolean) => void
-}) {
-  const router = useRouterState()
-  const currentPath = router.location.pathname
+interface SideMenuProps {
+  isOpen: boolean;
+  setIsOpen: (v: boolean) => void;
+}
+
+export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
+  const router = useRouterState();
+  const currentPath = router.location.pathname;
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Tancar el menú al clicar fora (només mòbil)
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target as Node) &&
+        isOpen
+      ) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, setIsOpen]);
 
   const menuItems = [
-    { to: "/", icon: <Home />, label: "Inici" },
-    { to: "/settings", icon: <Settings />, label: "Configuració" },
+    { to: "/", icon: <Home />, label: "Home" },
+    { to: "/contacts", icon: <Users />, label: "Contacts" },
+    { to: "/settings", icon: <Settings />, label: "Settings" },
     { to: "/info", icon: <Info />, label: "Info" },
-  ]
+  ];
 
   return (
     <>
-      {/* Escriptori */}
-      <div className="hidden md:flex fixed top-16 left-0 h-full w-20 bg-blue-700 flex-col items-center py-6 space-y-8 shadow-lg">
+      {/* Sidebar escriptori */}
+      <div className="hidden md:flex fixed top-16 left-0 h-full bg-blue-700 flex-col items-start py-6 px-6 space-y-4 shadow-lg min-w-[180px]">
         {menuItems.map((item) => (
           <MenuItem key={item.to} {...item} active={currentPath === item.to} />
         ))}
       </div>
 
-      {/* Mòbil */}
+      {/* Sidebar mòbil */}
       <div
-        className={`fixed top-0 left-0 h-full w-56 bg-blue-700 transform ${
+        ref={menuRef}
+        className={`fixed top-0 left-0 h-full bg-blue-700 transform ${
           isOpen ? "translate-x-0" : "-translate-x-full"
-        } transition-transform duration-300 ease-in-out z-50 md:hidden shadow-lg`}
+        } transition-transform duration-300 ease-in-out z-50 shadow-lg w-64 md:hidden`}
       >
-        <button
-          className="absolute top-4 right-4 text-white"
-          onClick={() => setIsOpen(false)}
-        >
-          <X size={24} />
-        </button>
-
-        <div className="flex flex-col p-6 mt-12 space-y-6">
+        <div className="flex justify-end p-4">
+          <button
+            className="text-white"
+            onClick={() => setIsOpen(false)}
+          >
+            <X size={24} />
+          </button>
+        </div>
+        <div className="flex flex-col p-6 mt-4 space-y-6">
           {menuItems.map((item) => (
             <MenuItem
               key={item.to}
@@ -51,7 +70,7 @@ export default function SideMenu({
         </div>
       </div>
     </>
-  )
+  );
 }
 
 function MenuItem({
@@ -61,22 +80,22 @@ function MenuItem({
   active,
   onClick,
 }: {
-  to: string
-  icon: React.ReactNode
-  label: string
-  active?: boolean
-  onClick?: () => void
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
     <Link
       to={to}
       onClick={onClick}
-      className={`flex items-center gap-3 hover:text-yellow-300 transition ${
-        active ? "text-yellow-300" : "text-white"
+      className={`flex items-center gap-3 p-2 rounded hover:bg-blue-600 transition ${
+        active ? "bg-blue-600 text-yellow-300" : "text-white"
       }`}
     >
-      <div className="flex items-center justify-center w-10 h-10">{icon}</div>
-      <span className="hidden md:inline text-sm">{label}</span>
+      <div className="w-6 h-6 flex items-center justify-center">{icon}</div>
+      <span className="text-sm">{label}</span>
     </Link>
-  )
+  );
 }
