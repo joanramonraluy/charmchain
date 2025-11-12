@@ -1,3 +1,4 @@
+// SideMenu.tsx
 import { useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Home, Settings, Info, Users, X } from "lucide-react";
@@ -37,7 +38,9 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
   return (
     <>
       {/* Sidebar escriptori */}
-      <div className="hidden md:flex fixed top-16 left-0 h-full bg-blue-700 flex-col items-start py-6 px-6 space-y-4 shadow-lg min-w-[180px]">
+      <div
+        className="hidden md:flex fixed top-20 left-0 h-[calc(100%-5rem)] bg-blue-700 flex-col items-start py-8 px-6 space-y-4 shadow-lg min-w-[180px]"
+      >
         {menuItems.map((item) => (
           <MenuItem key={item.to} {...item} active={currentPath === item.to} />
         ))}
@@ -51,10 +54,7 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
         } transition-transform duration-300 ease-in-out z-50 shadow-lg w-64 md:hidden`}
       >
         <div className="flex justify-end p-4">
-          <button
-            className="text-white"
-            onClick={() => setIsOpen(false)}
-          >
+          <button className="text-white" onClick={() => setIsOpen(false)}>
             <X size={24} />
           </button>
         </div>

@@ -2,26 +2,23 @@
 import { ReactNode, useState } from "react";
 import SideMenu from "./SideMenu";
 import Header from "./Header";
-import SubHeader from "./SubHeader";
 
 interface AppLayoutProps {
   children: ReactNode;
-  title?: string;
 }
 
-export default function AppLayout({ children, title }: AppLayoutProps) {
+export default function AppLayout({ children }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Altura del header + subheader si existeix
-  const topMargin = title ? "mt-28" : "mt-16";
-
   return (
-    <div className="flex h-screen bg-gray-100 text-gray-900">
+    <div className="flex bg-gray-100 text-gray-900 min-h-screen">
       <SideMenu isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
-      <div className="flex-1 flex flex-col overflow-hidden">
+
+      <div className="flex-1 flex flex-col">
         <Header onToggleMenu={() => setSidebarOpen(!sidebarOpen)} />
-        {title && <SubHeader title={title} />}
-        <main className={`${topMargin} flex-1 overflow-y-auto p-6`}>
+
+        {/* Contingut principal */}
+        <main className="mt-[-1rem] md:ml-[180px] p-6 flex-1 overflow-y-auto">
           {children}
         </main>
       </div>
