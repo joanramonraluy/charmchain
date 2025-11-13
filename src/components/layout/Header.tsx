@@ -28,7 +28,6 @@ interface HeaderProps {
   onToggleMenu: () => void;
 }
 
-// Array mínim de rutes i labels del menú
 const menuLabels = [
   { to: "/", label: "Home" },
   { to: "/contacts", label: "Contacts" },
@@ -39,11 +38,12 @@ const menuLabels = [
 export default function Header({ onToggleMenu }: HeaderProps) {
   const { loaded } = useContext(appContext);
   const [userAvatar, setUserAvatar] = useState<string>(defaultAvatar);
+  const [userName, setUserName] = useState<string>("");
 
   const router = useRouterState();
   const currentPath = router.location.pathname;
 
-  const currentItem = menuLabels.find(item => item.to === currentPath);
+  const currentItem = menuLabels.find((item) => item.to === currentPath);
   const pageTitle = currentItem?.label || "Welcome";
 
   useEffect(() => {
@@ -58,15 +58,22 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         const me = contactsArray.find((c) => !!c.myaddress);
         if (me && isMounted) {
           const icon = me.extradata?.icon;
+          const name = me.extradata?.name || "User";
           setUserAvatar(icon ? decodeURIComponent(icon) : defaultAvatar);
+          setUserName(name);
         }
       } catch (err) {
         console.error("Error fetching user info:", err);
       }
     };
     fetchUser();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, [loaded]);
+
+  const truncateName = (name: string) =>
+    name.length > 8 ? name.slice(0, 8) + "…" : name;
 
   return (
     <header className="w-full shadow-lg z-40">
@@ -85,19 +92,29 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-4">
-          <Wifi size={20} className="text-green-400" />
+          <span className="font-medium truncate max-w-[80px] text-right">
+            {truncateName(userName)}
+          </span>
           <img
             src={userAvatar}
             alt="User avatar"
             className="w-8 h-8 rounded-full border border-gray-300 object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).src = defaultAvatar; }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = defaultAvatar;
+            }}
           />
         </div>
       </div>
 
       {/* Subheader */}
-      <div className="bg-blue-100 text-blue-900 px-6 py-1 shadow-inner w-full">
-        <h2 className="text-lg font-medium text-right">{pageTitle}</h2>
+      <div className="bg-blue-100 text-blue-900 px-6 py-1 shadow-inner w-full flex justify-end items-center gap-2">
+        <h2 className="text-lg font-medium">{pageTitle}</h2>
+        <Wifi
+          size={20}
+          className={`${
+            loaded ? "text-green-600" : "text-gray-400"
+          } transition-colors`}
+        />
       </div>
     </header>
   );

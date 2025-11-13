@@ -79,6 +79,19 @@ export default function CheckContacts() {
     return `${addr.slice(0, 7)}...${addr.slice(-5)}`;
   };
 
+  // Funció que retorna "fa X minuts/hores/dies" a partir del lastseen
+  const timeAgo = (timestamp) => {
+    if (!timestamp) return "Desconegut";
+    const diff = Date.now() - timestamp;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "ara mateix";
+    if (mins < 60) return `fa ${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `fa ${hours} h`;
+    const days = Math.floor(hours / 24);
+    return `fa ${days} dies`;
+  };
+
   return (
     <div>
       {contacts.length > 0 ? (
@@ -89,34 +102,53 @@ export default function CheckContacts() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "0.8rem",
+                justifyContent: "space-between",
                 marginBottom: "0.8rem",
                 backgroundColor: "#f8f8f8",
                 padding: "0.6rem 1rem",
                 borderRadius: "12px",
+                border: "1px solid #ddd",
               }}
             >
-              <img
-                src={getAvatar(c)}
-                alt={c.extradata?.name || "(No name)"}
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: "50%",
-                  objectFit: "cover",
-                  border: "1px solid #ddd",
-                }}
-                onError={(e) => {
-                  e.target.src = defaultAvatar;
-                }}
-              />
-              <div>
-                <strong>{c.extradata?.name || "(No name)"}</strong>
-                <br />
-                <small style={{ color: "#555" }}>
-                  {truncateAddress(c.currentaddress || c.extradata?.minimaaddress)}
-                </small>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+                <img
+                  src={getAvatar(c)}
+                  alt={c.extradata?.name || "(No name)"}
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                    border: "1px solid #ddd",
+                  }}
+                  onError={(e) => {
+                    e.target.src = defaultAvatar;
+                  }}
+                />
+                <div>
+                  <strong>{c.extradata?.name || "(No name)"}</strong>
+                  <br />
+                  <small style={{ color: "#555" }}>
+                    {truncateAddress(c.currentaddress || c.extradata?.minimaaddress)}
+                  </small>
+                  <br />
+                  <small style={{ color: "#777" }}>
+                    Última connexió: {timeAgo(c.lastseen)}
+                  </small>
+                </div>
               </div>
+
+              {/* Estat connexió */}
+              <div
+                style={{
+                  width: "12px",
+                  height: "12px",
+                  borderRadius: "50%",
+                  backgroundColor: c.samechain ? "green" : "red",
+                  marginLeft: "1rem",
+                }}
+                title={c.samechain ? "Connectat" : "Desconnectat"}
+              ></div>
             </li>
           ))}
         </ul>
