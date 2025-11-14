@@ -11,6 +11,8 @@ import "./index.css"
 
 import { routeTree } from "./routeTree.gen"
 
+
+
 const memoryHistory = createMemoryHistory({
   initialEntries: ["/"],
 })
