@@ -13,17 +13,6 @@ const defaultAvatar =
      </svg>`
   );
 
-interface MyContact {
-  id: number;
-  myaddress: string;
-  currentaddress: string;
-  extradata?: {
-    name?: string;
-    icon?: string;
-    minimaaddress?: string;
-  };
-}
-
 interface HeaderProps {
   onToggleMenu: () => void;
 }
@@ -47,30 +36,31 @@ export default function Header({ onToggleMenu }: HeaderProps) {
   const pageTitle = currentItem?.label || "Welcome";
 
   useEffect(() => {
-    if (!loaded) return;
-    let isMounted = true;
+  if (!loaded) return;
+  let isMounted = true;
 
-    const fetchUser = async () => {
-      try {
-        const res = await MDS.cmd.maxcontacts();
-        const contactsArray: MyContact[] =
-          (res.response as any)?.contacts ?? [];
-        const me = contactsArray.find((c) => !!c.myaddress);
-        if (me && isMounted) {
-          const icon = me.extradata?.icon;
-          const name = me.extradata?.name || "User";
-          setUserAvatar(icon ? decodeURIComponent(icon) : defaultAvatar);
-          setUserName(name);
-        }
-      } catch (err) {
-        console.error("Error fetching user info:", err);
+  const fetchUser = async () => {
+    try {
+      const res = await MDS.cmd.maxima({ params: { action: "info" } });
+      const info = (res.response as any) || {};
+
+      if (isMounted && info) {
+        const name = info.name || "User";
+        const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar;
+        setUserName(name);
+        setUserAvatar(icon);
       }
-    };
-    fetchUser();
-    return () => {
-      isMounted = false;
-    };
-  }, [loaded]);
+    } catch (err) {
+      console.error("Error fetching user info:", err);
+    }
+  };
+
+  fetchUser();
+  return () => {
+    isMounted = false;
+  };
+}, [loaded]);
+
 
   const truncateName = (name: string) =>
     name.length > 8 ? name.slice(0, 8) + "…" : name;
@@ -98,7 +88,7 @@ export default function Header({ onToggleMenu }: HeaderProps) {
           <img
             src={userAvatar}
             alt="User avatar"
-            className="w-8 h-8 rounded-full border border-gray-300 object-cover"
+            className="w-8 h-8 rounded-full border-[3px] border-blue-300 object-cover"
             onError={(e) => {
               (e.target as HTMLImageElement).src = defaultAvatar;
             }}
@@ -112,7 +102,7 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         <Wifi
           size={20}
           className={`${
-            loaded ? "text-green-600" : "text-gray-400"
+            loaded ? "text-green-600" : "text-red-400"
           } transition-colors`}
         />
       </div>
