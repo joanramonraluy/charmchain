@@ -13,6 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as InfoRouteImport } from './routes/info'
 import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChatAddressRouteImport } from './routes/chat/$address'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -34,18 +35,25 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatAddressRoute = ChatAddressRouteImport.update({
+  id: '/chat/$address',
+  path: '/chat/$address',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
+  '/chat/$address': typeof ChatAddressRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
+  '/chat/$address': typeof ChatAddressRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,14 @@ export interface FileRoutesById {
   '/contacts': typeof ContactsRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
+  '/chat/$address': typeof ChatAddressRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/contacts' | '/info' | '/settings'
+  fullPaths: '/' | '/contacts' | '/info' | '/settings' | '/chat/$address'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/contacts' | '/info' | '/settings'
-  id: '__root__' | '/' | '/contacts' | '/info' | '/settings'
+  to: '/' | '/contacts' | '/info' | '/settings' | '/chat/$address'
+  id: '__root__' | '/' | '/contacts' | '/info' | '/settings' | '/chat/$address'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +76,7 @@ export interface RootRouteChildren {
   ContactsRoute: typeof ContactsRoute
   InfoRoute: typeof InfoRoute
   SettingsRoute: typeof SettingsRoute
+  ChatAddressRoute: typeof ChatAddressRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +109,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chat/$address': {
+      id: '/chat/$address'
+      path: '/chat/$address'
+      fullPath: '/chat/$address'
+      preLoaderRoute: typeof ChatAddressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +124,7 @@ const rootRouteChildren: RootRouteChildren = {
   ContactsRoute: ContactsRoute,
   InfoRoute: InfoRoute,
   SettingsRoute: SettingsRoute,
+  ChatAddressRoute: ChatAddressRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

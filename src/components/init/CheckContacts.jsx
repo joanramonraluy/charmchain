@@ -1,12 +1,20 @@
+// src/components/init/CheckContacts.jsx
+
 import React, { useContext, useEffect, useState } from "react";
 import { appContext } from "../../AppContext";
 import { MDS } from "@minima-global/mds";
+
+// ✅ Import correcte amb TanStack Router
+import { useNavigate } from "@tanstack/react-router";
 
 export default function CheckContacts() {
   const { loaded } = useContext(appContext);
   const [contacts, setContacts] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // ✅ Navegador de TanStack Router
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!loaded) return;
@@ -72,14 +80,12 @@ export default function CheckContacts() {
     return defaultAvatar;
   };
 
-  // Trunca adreça: 7 primers + ... + 5 darrers
   const truncateAddress = (addr) => {
     if (!addr) return "(No address)";
     if (addr.length <= 12) return addr;
     return `${addr.slice(0, 7)}...${addr.slice(-5)}`;
   };
 
-  // Funció que retorna "fa X minuts/hores/dies" a partir del lastseen
   const timeAgo = (timestamp) => {
     if (!timestamp) return "Desconegut";
     const diff = Date.now() - timestamp;
@@ -108,7 +114,17 @@ export default function CheckContacts() {
                 padding: "0.6rem 1rem",
                 borderRadius: "12px",
                 border: "1px solid #ddd",
+                cursor: "pointer", // 👈 Afegit
               }}
+              // 👇 Navegació a la ruta dinàmica
+              onClick={() =>
+                navigate({
+                  to: "/chat/$address",
+                  params: {
+                    address: c.currentaddress || c.extradata?.minimaaddress,
+                  },
+                })
+              }
             >
               <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
                 <img
@@ -138,7 +154,6 @@ export default function CheckContacts() {
                 </div>
               </div>
 
-              {/* Estat connexió */}
               <div
                 style={{
                   width: "12px",
