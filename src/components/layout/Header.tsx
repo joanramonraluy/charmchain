@@ -33,7 +33,10 @@ export default function Header({ onToggleMenu }: HeaderProps) {
   const currentPath = router.location.pathname;
 
   const currentItem = menuLabels.find((item) => item.to === currentPath);
-  const pageTitle = currentItem?.label || "Welcome";
+  const isChat = currentPath.startsWith("/chat/");
+  const pageTitle = isChat
+    ? "Charm Chat"
+    : currentItem?.label || "Have a nice day";
 
   useEffect(() => {
   if (!loaded) return;
