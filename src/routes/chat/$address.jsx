@@ -108,10 +108,14 @@ function ChatPage() {
 
       try {
         await ensureServiceReady();
+        console.log("[ChatPage] Carregant missatges per:", address);
 
-        const rawMessages = await new Promise((resolve) =>
-          getMessages(address, resolve)
-        );
+        const rawMessages = await new Promise((resolve) => {
+          getMessages(address, (msgs) => {
+            console.log("[ChatPage] getMessages callback:", msgs);
+            resolve(msgs);
+          });
+        });
 
         console.log("[DB] Raw messages:", rawMessages);
 
@@ -121,7 +125,6 @@ function ChatPage() {
           console.log("[DB] RAW row:", row);
 
           const isCharm = row.TYPE === "charm";
-
           const charmObj = isCharm ? { id: row.MESSAGE } : null;
 
           const parsed = {
@@ -163,8 +166,9 @@ function ChatPage() {
     setMessages((prev) => [...prev, newMsg]);
 
     try {
+      console.log("[ChatPage] Sending message via service.js:", input);
       await sendMessage(address, username, input);
-      console.log("[Maxima + DB] Message sent:", input);
+      console.log("[ChatPage] Message successfully sent!");
     } catch (err) {
       console.error("[Send] Error sending message:", err);
     }
@@ -185,6 +189,7 @@ function ChatPage() {
       { fromMe: true, charm: { id: charmId }, amount }
     ]);
 
+    console.log("[ChatPage] Inserting charm into DB:", charmId, amount);
     insertMessage({
       roomname: username,
       publickey: address,
@@ -194,8 +199,6 @@ function ChatPage() {
       amount,
       filedata: "",
     });
-
-    console.log("[DB] Charm inserted:", charmId, amount);
   };
 
   /* ----------------------------------------------------------------------------

@@ -138,20 +138,32 @@ export function getMessages(publickey, callback) {
 // Enviar missatge via Maxima + guardar a DB
 export async function sendMessage(toPublicKey, username, message, type = "text", filedata = "") {
   try {
+    console.log("[Maxima+DB] Preparing message to send...");
+    console.log("  Original toPublicKey:", toPublicKey);
+
+    // Només la clau pública (sense @ip:port)
+    const pk = toPublicKey.includes("@") ? toPublicKey.split("@")[0] : toPublicKey;
+    console.log("  Using publickey:", pk);
+
     const payload = { application: "maxsolo", message, type, username, filedata };
     const payloadHex = "0x" + utf8ToHex(JSON.stringify(payload));
+    console.log("  Payload HEX:", payloadHex);
 
     // Enviar via Maxima
-    await MDS.cmd.maxima({ params: { action: "send", to: toPublicKey, data: payloadHex } });
+    const response = await MDS.cmd.maxima({
+      params: { action: "send", publickey: pk, application: "maxsolo", data: payloadHex, poll: true }
+    });
+
+    console.log("[Maxima] Response:", response);
 
     // Guardar a DB local
-    insertMessage({ roomname: username, publickey: toPublicKey, username, type, message, filedata });
-
-    console.log("[Maxima+DB] Message sent and saved:", message);
+    insertMessage({ roomname: username, publickey: pk, username, type, message, filedata });
+    console.log("[DB] Message inserted:", message);
   } catch (err) {
     console.error("[Maxima] Error sending message:", err);
   }
 }
+
 
 // Inicialització general del servei
 export function initService() {

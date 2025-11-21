@@ -1,3 +1,5 @@
+// src/main.tsx
+
 import { MDS } from "@minima-global/mds"
 import {
   createMemoryHistory,
