@@ -96,7 +96,6 @@ function ChatPage() {
             x.extradata?.minimaaddress === address
         );
         setContact(c || null);
-        console.log("[Contact] Loaded:", c);
       } catch (err) {
         console.error("[Contact] Error loading contact:", err);
       }
@@ -113,28 +112,21 @@ function ChatPage() {
       if (!contact) return;
 
       try {
-        console.log("[ChatPage] Carregant missatges per:", address);
-
         const rawMessages = await minimaService.getMessages(address);
-
-        console.log("[DB] Raw messages:", rawMessages);
 
         if (!Array.isArray(rawMessages)) return;
 
-        const parsedMessages = rawMessages.map((row: ChatMessage) => {
-          const isCharm = row.type === "charm";
-          const charmObj = isCharm ? { id: row.message } : null;
+        const parsedMessages = rawMessages.map((row: any) => {
+          // SQL returns column names in UPPERCASE
+          const isCharm = row.TYPE === "charm";
+          const charmObj = isCharm ? { id: row.MESSAGE } : null;
 
-          const parsed: ParsedMessage = {
-            text: isCharm ? null : decodeURIComponent(row.message || ""),
-            // TODO: Verify fromMe logic - original code used row.publickey === contact?.myaddress
-            // which may not work correctly for all cases
-            fromMe: row.publickey === contact?.myaddress,
+          return {
+            text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
+            fromMe: row.PUBLICKEY === contact?.myaddress,
             charm: charmObj,
-            amount: isCharm ? Number(row.read || 0) : null,
+            amount: isCharm ? Number(row.READ || 0) : null,
           };
-
-          return parsed;
         });
 
         setMessages(parsedMessages);
@@ -144,6 +136,42 @@ function ChatPage() {
     };
 
     fetchMessages();
+  }, [address, contact]);
+
+  /* ----------------------------------------------------------------------------
+      LISTEN FOR INCOMING MESSAGES
+  ---------------------------------------------------------------------------- */
+  useEffect(() => {
+    if (!contact) return;
+
+    const handleNewMessage = () => {
+      // Reload messages to include the new one
+      minimaService.getMessages(address).then((rawMessages) => {
+        if (!Array.isArray(rawMessages)) return;
+
+        const parsedMessages = rawMessages.map((row: any) => {
+          const isCharm = row.TYPE === "charm";
+          const charmObj = isCharm ? { id: row.MESSAGE } : null;
+
+          return {
+            text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
+            fromMe: row.PUBLICKEY === contact?.myaddress,
+            charm: charmObj,
+            amount: isCharm ? Number(row.READ || 0) : null,
+          };
+        });
+
+        setMessages(parsedMessages);
+      });
+    };
+
+    // Subscribe to new messages
+    minimaService.onNewMessage(handleNewMessage);
+
+    // Cleanup: remove listener when component unmounts or dependencies change
+    return () => {
+      minimaService.removeNewMessageCallback(handleNewMessage);
+    };
   }, [address, contact]);
 
   /* ----------------------------------------------------------------------------

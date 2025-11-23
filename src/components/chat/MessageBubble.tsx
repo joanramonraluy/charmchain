@@ -43,6 +43,9 @@ export default function MessageBubble({ fromMe, text, charm, amount }: MessageBu
       {/* Text */}
       {text && <p className="leading-snug whitespace-pre-wrap">{text}</p>}
 
+      {/* Debug: show if no text and no charm */}
+      {!text && !isCharm && <p className="text-xs opacity-50">[Empty message]</p>}
+
       {/* Quantitat de Minima */}
       {isCharm && amount != null && (
         <span className="mt-1 text-sm font-semibold">{amount} MINIMA</span>

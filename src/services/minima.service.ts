@@ -59,7 +59,7 @@ class MinimaService {
     initDB() {
         const initsql = `
       CREATE TABLE IF NOT EXISTS "MESSAGES" (
-        id BIGINT IDENTITY PRIMARY KEY,
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
         roomname VARCHAR(160) NOT NULL,
         publickey VARCHAR(512) NOT NULL,
         username VARCHAR(160) NOT NULL,
@@ -72,7 +72,11 @@ class MinimaService {
         date BIGINT NOT NULL
       )
     `;
-        MDS.sql(initsql);
+        MDS.sql(initsql, (res: any) => {
+            if (!res.status) {
+                console.error("❌ [DB] Failed to create table:", res.error);
+            }
+        });
     }
 
     insertMessage(msg: ChatMessage) {
@@ -109,12 +113,36 @@ class MinimaService {
         this.newMessageCallbacks.push(cb);
     }
 
-    processIncomingMessage(msg: any) {
-        if (!msg.data || !msg.data.application) return;
+    removeNewMessageCallback(cb: MessageCallback) {
+        const index = this.newMessageCallbacks.indexOf(cb);
+        if (index > -1) {
+            this.newMessageCallbacks.splice(index, 1);
+        }
+    }
 
-        if (msg.data.application === "CharmChain") {
-            const from = msg.data.from;
-            const datastr = msg.data.data;
+    processIncomingMessage(event: any) {
+        if (!event.data) {
+            console.warn("⚠️ [MAXIMA] Event has no data:", event);
+            return;
+        }
+
+        const maximaData = event.data;
+
+        // Log ALL Maxima events to see what's arriving
+        console.log("📨 [MAXIMA] Event received:", {
+            from: maximaData.from,
+            application: maximaData.application,
+            data: maximaData.data
+        });
+
+        if (!maximaData.application) {
+            console.warn("⚠️ [MAXIMA] No application specified");
+            return;
+        }
+
+        if (maximaData.application === "CharmChain") {
+            const from = maximaData.from;
+            const datastr = maximaData.data;
 
             try {
                 const json = JSON.parse(datastr) as IncomingMessagePayload;
@@ -128,12 +156,14 @@ class MinimaService {
                     filedata: json.filedata || "",
                 });
 
-                console.log("[CharmChain] Missatge rebut de", from, ":", json.message);
+                console.log("✅ [CharmChain] Missatge rebut de", from, ":", json.message);
 
                 this.newMessageCallbacks.forEach((cb) => cb(json));
             } catch (err) {
-                console.error("[CharmChain] Error processant missatge:", err);
+                console.error("❌ [CharmChain] Error processant missatge:", err);
             }
+        } else {
+            console.log(`ℹ️ [MAXIMA] Message from application "${maximaData.application}" (not CharmChain)`);
         }
     }
 
@@ -148,30 +178,27 @@ class MinimaService {
         filedata: string = ""
     ) {
         try {
-            // We need to wrap payload in application/data structure for Maxima? 
-            // The original code sent: application: "CharmChain", data: JSON.stringify(payload)
-            // But wait, the original code in sendMessage constructed 'payload' then JSON.stringified it into 'data'.
-            // payload = { application: "CharmChain", message, type, username, filedata }
-            // Then MDS.cmd.maxima params.data = JSON.stringify(payload)
-
-            // Let's replicate exact behavior first.
-            const actualPayload = {
-                application: "CharmChain",
+            // Create payload with message data only (application is specified in Maxima params)
+            const payload = {
                 message,
                 type,
                 username,
                 filedata
             };
 
+            console.log("📤 [CharmChain] Sending message to:", toPublicKey, payload);
+
             await MDS.cmd.maxima({
                 params: {
                     action: "send",
                     to: toPublicKey,
                     application: "CharmChain",
-                    data: JSON.stringify(actualPayload),
+                    data: JSON.stringify(payload),
                     poll: true,
-                } as any, // Cast to any to avoid type error if 'poll' is missing in types
+                } as any,
             });
+
+            console.log("✅ [CharmChain] Message sent successfully");
 
             this.insertMessage({
                 roomname: username,
@@ -182,7 +209,7 @@ class MinimaService {
                 filedata,
             });
         } catch (err) {
-            console.error("[CharmChain] Error enviant missatge:", err);
+            console.error("❌ [CharmChain] Error enviant missatge:", err);
             throw err;
         }
     }
