@@ -1,5 +1,6 @@
 import { Block, MDS, MinimaEvents } from "@minima-global/mds"
 import { createContext, useEffect, useRef, useState } from "react"
+import { minimaService } from "./services/minima.service"
 
 export const appContext = createContext<{
   loaded: boolean
@@ -15,10 +16,19 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     if (!initialised.current) {
       initialised.current = true
 
-      MDS.init(async ({ event }) => {
-        if (event === MinimaEvents.INITED) {
+      minimaService.init()
+
+      MDS.init(async (msg) => {
+        // Pass event to service for processing (e.g. Maxima messages)
+        minimaService.processEvent(msg)
+
+        if (msg.event === MinimaEvents.INITED) {
           setLoaded(true)
           console.log("MDS initialised and ready! 🚀")
+
+          // Initialize database after MDS is ready
+          minimaService.initDB()
+
           const command = await MDS.cmd.block()
           setBlock(command.response)
         }
