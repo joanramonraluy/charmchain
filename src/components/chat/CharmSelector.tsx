@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { Player } from "@lottiefiles/react-lottie-player";
@@ -132,8 +132,8 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
             onClick={handleSend}
             disabled={!selectedCharm || !selectedAmount}
             className={`w-full py-2 rounded-xl text-lg font-medium transition-all ${selectedCharm && selectedAmount
-                ? "bg-purple-600 text-white hover:bg-purple-700"
-                : "bg-gray-300 text-gray-600 cursor-not-allowed"
+              ? "bg-purple-600 text-white hover:bg-purple-700"
+              : "bg-gray-300 text-gray-600 cursor-not-allowed"
               }`}
           >
             Send

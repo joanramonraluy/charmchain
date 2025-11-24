@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import CharmSelector from "../../components/chat/CharmSelector";
 import MessageBubble from "../../components/chat/MessageBubble";
-import { minimaService, ChatMessage } from "../../services/minima.service";
+import { minimaService } from "../../services/minima.service";
 
 export const Route = createFileRoute("/chat/$address")({
   component: ChatPage,
@@ -14,6 +14,7 @@ export const Route = createFileRoute("/chat/$address")({
 
 interface Contact {
   currentaddress: string;
+  publickey: string;  // Added: needed to send messages
   extradata?: {
     minimaaddress?: string;
     name?: string;
@@ -27,6 +28,7 @@ interface ParsedMessage {
   fromMe: boolean;
   charm: { id: string } | null;
   amount: number | null;
+  timestamp?: number;
 }
 
 function ChatPage() {
@@ -92,6 +94,7 @@ function ChatPage() {
         const list: Contact[] = (res as any)?.response?.contacts || [];
         const c = list.find(
           (x) =>
+            x.publickey === address ||
             x.currentaddress === address ||
             x.extradata?.minimaaddress === address
         );
@@ -116,6 +119,8 @@ function ChatPage() {
 
         if (!Array.isArray(rawMessages)) return;
 
+        console.log("🐛 [DB] Raw messages:", rawMessages); // DEBUG LOG
+
         const parsedMessages = rawMessages.map((row: any) => {
           // SQL returns column names in UPPERCASE
           const isCharm = row.TYPE === "charm";
@@ -123,9 +128,10 @@ function ChatPage() {
 
           return {
             text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
-            fromMe: row.PUBLICKEY === contact?.myaddress,
+            fromMe: row.USERNAME === "Me",
             charm: charmObj,
             amount: isCharm ? Number(row.READ || 0) : null,
+            timestamp: Number(row.DATE || 0),
           };
         });
 
@@ -155,9 +161,10 @@ function ChatPage() {
 
           return {
             text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
-            fromMe: row.PUBLICKEY === contact?.myaddress,
+            fromMe: row.USERNAME === "Me",
             charm: charmObj,
             amount: isCharm ? Number(row.READ || 0) : null,
+            timestamp: Number(row.DATE || 0),
           };
         });
 
@@ -187,14 +194,19 @@ function ChatPage() {
   ---------------------------------------------------------------------------- */
   const handleSendMessage = async () => {
     if (!input.trim()) return;
+    if (!contact?.publickey) {
+      console.error("[Send] Cannot send: no publickey for contact");
+      return;
+    }
+
     const username = contact?.extradata?.name || "Unknown";
 
-    const newMsg: ParsedMessage = { text: input, fromMe: true, charm: null, amount: null };
+    const newMsg: ParsedMessage = { text: input, fromMe: true, charm: null, amount: null, timestamp: Date.now() };
     setMessages((prev) => [...prev, newMsg]);
 
     try {
-      console.log("[ChatPage] Sending message via service:", input);
-      await minimaService.sendMessage(address, username, input);
+      console.log("[ChatPage] Sending message to publickey:", contact.publickey);
+      await minimaService.sendMessage(contact.publickey, username, input);
       console.log("[ChatPage] Message successfully sent!");
     } catch (err) {
       console.error("[Send] Error sending message:", err);
@@ -208,35 +220,21 @@ function ChatPage() {
   ---------------------------------------------------------------------------- */
   const handleSendCharm = ({ charmId, amount }: { charmId: string; charmLabel?: string; charmAnimation?: any; amount: number }) => {
     if (!charmId || !amount) return;
+    if (!contact?.publickey) {
+      console.error("[Send] Cannot send charm: no publickey for contact");
+      return;
+    }
 
     const username = contact?.extradata?.name || "Unknown";
 
     setMessages((prev) => [
       ...prev,
-      { text: null, fromMe: true, charm: { id: charmId }, amount }
+      { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: Date.now() }
     ]);
 
-    console.log("[ChatPage] Inserting charm into DB:", charmId, amount);
+    console.log("[ChatPage] Sending charm to publickey:", contact.publickey, charmId, amount);
 
-    // We use sendMessage to send AND insert.
-    // But original code called insertMessage directly?
-    // Original: handleSendCharm -> setMessages -> insertMessage.
-    // It DID NOT send the charm via Maxima?
-    // Wait.
-    // Line 180: handleSendCharm
-    // Line 191: insertMessage(...)
-    // It seems it ONLY inserted it locally?
-    // That means Charms are NOT sent to the other person?
-    // That seems like a bug or a feature (maybe you just "give" it to them locally?).
-    // But the README says "Send or receive charms".
-    // So it SHOULD be sent.
-    // The original code might have been incomplete.
-    // I should probably use 'sendMessage' with type='charm'.
-    // But 'sendMessage' takes 'message' string.
-    // If I use sendMessage(address, username, charmId, "charm"), it will send it.
-    // Let's do that to FIX it.
-
-    minimaService.sendMessage(address, username, charmId, "charm")
+    minimaService.sendMessage(contact.publickey, username, charmId, "charm")
       .catch(err => console.error("Error sending charm:", err));
   };
 
@@ -265,22 +263,35 @@ function ChatPage() {
         </div>
 
         {/* CHAT BODY */}
-        <div className="flex-1 p-4 overflow-y-auto">
+        <div className="flex-1 p-4 overflow-y-auto flex flex-col">
           {messages.length === 0 && (
             <p className="text-center text-blue-400 italic">
               Envia el teu primer missatge ✨
             </p>
           )}
 
-          {messages.map((msg, i) => (
-            <MessageBubble
-              key={i}
-              fromMe={msg.fromMe}
-              text={msg.text}
-              charm={msg.charm}
-              amount={msg.amount}
-            />
-          ))}
+          {messages.map((msg, i) => {
+            const currentDate = new Date(msg.timestamp || 0).toDateString();
+            const prevDate = i > 0 ? new Date(messages[i - 1].timestamp || 0).toDateString() : null;
+            const showDate = currentDate !== prevDate;
+
+            return (
+              <div key={i} className="flex flex-col w-full">
+                {showDate && msg.timestamp && (
+                  <div className="text-center text-xs text-gray-400 my-4 font-medium">
+                    {new Date(msg.timestamp).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                  </div>
+                )}
+                <MessageBubble
+                  fromMe={msg.fromMe}
+                  text={msg.text}
+                  charm={msg.charm}
+                  amount={msg.amount}
+                  timestamp={msg.timestamp}
+                />
+              </div>
+            );
+          })}
 
           <div ref={messagesEndRef} />
         </div>

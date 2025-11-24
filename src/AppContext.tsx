@@ -19,6 +19,11 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
       minimaService.init()
 
       MDS.init(async (msg) => {
+        // RAW DEBUG LOG: See everything coming from Minima
+        if (msg.event === "MAXIMA") {
+          console.log("🔥 [AppContext] RAW MAXIMA EVENT:", msg);
+        }
+
         // Pass event to service for processing (e.g. Maxima messages)
         minimaService.processEvent(msg)
 

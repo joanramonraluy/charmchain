@@ -140,12 +140,30 @@ class MinimaService {
             return;
         }
 
-        if (maximaData.application === "CharmChain") {
+        // Check if the message is for our application (case-insensitive)
+        if (maximaData.application.toLowerCase() === "charmchain") {
             const from = maximaData.from;
-            const datastr = maximaData.data;
+            let datastr = maximaData.data;
+
+            // Check if data is in hex format (starts with 0x)
+            if (typeof datastr === 'string' && datastr.startsWith('0x')) {
+                console.log("🔄 [MAXIMA] Converting hex data to UTF8");
+                datastr = this.hexToUtf8(datastr.substring(2)); // Remove 0x prefix
+                console.log("📝 [MAXIMA] Converted data:", datastr);
+            }
 
             try {
                 const json = JSON.parse(datastr) as IncomingMessagePayload;
+
+                if (json.type === "read") {
+                    // Mark my sent messages as read by them
+                    const sql = `UPDATE "MESSAGES" SET STATE='read' WHERE publickey='${from}' AND username='Me'`;
+                    MDS.sql(sql);
+
+                    // Notify listeners to refresh UI
+                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'read_receipt' }));
+                    return;
+                }
 
                 this.insertMessage({
                     roomname: json.username,
@@ -161,6 +179,7 @@ class MinimaService {
                 this.newMessageCallbacks.forEach((cb) => cb(json));
             } catch (err) {
                 console.error("❌ [CharmChain] Error processant missatge:", err);
+                console.error("❌ [CharmChain] Data rebuda:", datastr);
             }
         } else {
             console.log(`ℹ️ [MAXIMA] Message from application "${maximaData.application}" (not CharmChain)`);
@@ -186,24 +205,36 @@ class MinimaService {
                 filedata
             };
 
-            console.log("📤 [CharmChain] Sending message to:", toPublicKey, payload);
+            // Convert to HEX manually to match MaxSolo behavior
+            const jsonStr = JSON.stringify(payload);
+            const hexData = "0x" + this.utf8ToHex(jsonStr).toUpperCase();
 
-            await MDS.cmd.maxima({
+            console.log("📤 [CharmChain] Sending message to:", toPublicKey, payload);
+            console.log("🔢 [CharmChain] Hex data:", hexData);
+
+            const response = await MDS.cmd.maxima({
                 params: {
                     action: "send",
-                    to: toPublicKey,
-                    application: "CharmChain",
-                    data: JSON.stringify(payload),
-                    poll: true,
+                    publickey: toPublicKey, // Use publickey for 0x... keys
+                    application: "charmchain", // Lowercase to match package.json
+                    data: hexData,
+                    poll: false,  // Send immediately instead of queuing
                 } as any,
             });
+
+            console.log("📡 [MDS] Full Maxima send response:", response);
+
+            if (response && (response as any).status === false) {
+                console.error("❌ [MDS] Maxima send failed:", (response as any).error || response);
+                throw new Error((response as any).error || "Maxima send failed");
+            }
 
             console.log("✅ [CharmChain] Message sent successfully");
 
             this.insertMessage({
                 roomname: username,
                 publickey: toPublicKey,
-                username,
+                username: "Me", // Set to "Me" so we know it's sent by us
                 type,
                 message,
                 filedata,
@@ -211,6 +242,37 @@ class MinimaService {
         } catch (err) {
             console.error("❌ [CharmChain] Error enviant missatge:", err);
             throw err;
+        }
+    }
+
+    async sendReadReceipt(toPublicKey: string) {
+        try {
+            const payload = {
+                message: "",
+                type: "read",
+                username: "Me",
+                filedata: ""
+            };
+
+            const jsonStr = JSON.stringify(payload);
+            const hexData = "0x" + this.utf8ToHex(jsonStr).toUpperCase();
+
+            await MDS.cmd.maxima({
+                params: {
+                    action: "send",
+                    publickey: toPublicKey,
+                    application: "charmchain",
+                    data: hexData,
+                    poll: false,
+                } as any,
+            });
+
+            // Mark received messages as read locally
+            const sql = `UPDATE "MESSAGES" SET STATE='read' WHERE publickey='${toPublicKey}' AND username!='Me' AND STATE!='read'`;
+            MDS.sql(sql);
+
+        } catch (err) {
+            console.error("❌ [CharmChain] Error sending read receipt:", err);
         }
     }
 
@@ -231,7 +293,13 @@ class MinimaService {
     }
 
     processEvent(event: any) {
+        // Log event type to confirm MDS is alive (skip MINIMALOG to reduce noise)
+        if (event.event !== "MAXIMA" && event.event !== "MINIMALOG") {
+            console.log("🔔 [MDS] Event received:", event.event);
+        }
+
         if (event.event === "MAXIMA") {
+            console.log("✉️ [MDS] MAXIMA event detected:", event);
             this.processIncomingMessage(event);
         }
     }

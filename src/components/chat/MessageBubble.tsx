@@ -1,5 +1,5 @@
 // src/components/chat/MessageBubble.tsx
-import React from "react";
+
 import Lottie from "lottie-react";
 
 // Import dinàmic de tots els JSON de charms
@@ -10,16 +10,18 @@ interface MessageBubbleProps {
   text: string | null;
   charm: { id: string } | null;
   amount: number | null;
+  timestamp?: number;
+  status?: 'sent' | 'read';
 }
 
-export default function MessageBubble({ fromMe, text, charm, amount }: MessageBubbleProps) {
-  const alignment = fromMe ? "self-end" : "self-start";
+export default function MessageBubble({ fromMe, text, charm, amount, timestamp, status }: MessageBubbleProps) {
+  const alignment = fromMe ? "self-start" : "self-end"; // Sent on Left, Received on Right
   const isCharm = !!charm;
   const bubbleColor = isCharm
     ? "bg-purple-300 text-purple-900" // fons lila per charms
     : fromMe
-      ? "bg-blue-500 text-white"
-      : "bg-blue-200 text-blue-900";
+      ? "bg-pink-500 text-white" // Sent (Left)
+      : "bg-blue-200 text-blue-900"; // Received (Right)
 
   // Agafa el JSON corresponent al charm si existeix
   let animationData = null;
@@ -50,6 +52,29 @@ export default function MessageBubble({ fromMe, text, charm, amount }: MessageBu
       {isCharm && amount != null && (
         <span className="mt-1 text-sm font-semibold">{amount} MINIMA</span>
       )}
+
+      {/* Timestamp & Status */}
+      <div className={`flex items-center gap-1 mt-1 self-end ${fromMe ? "text-pink-100" : "text-gray-500"}`}>
+        <span className="text-[10px]">
+          {timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+        </span>
+
+        {fromMe && (
+          <div className="flex">
+            {/* First check */}
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={status === 'read' ? "text-blue-300" : "text-pink-200"}>
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+
+            {/* Second check (only if read) */}
+            {status === 'read' && (
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-300 -ml-2">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

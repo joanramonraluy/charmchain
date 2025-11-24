@@ -1,6 +1,6 @@
 // src/components/init/CheckContacts.tsx
 
-import React, { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { appContext } from "../../AppContext";
 import { MDS } from "@minima-global/mds";
 
@@ -9,6 +9,7 @@ import { useNavigate } from "@tanstack/react-router";
 
 interface Contact {
   currentaddress: string;
+  publickey?: string;
   extradata?: {
     minimaaddress?: string;
     name?: string;
@@ -35,15 +36,20 @@ export default function CheckContacts() {
     const fetchContacts = async () => {
       try {
         console.log("✅ MDS loaded, fetching contacts...");
-        const res = await MDS.cmd.maxcontacts();
+        // Type as any because the actual response structure doesn't match the TypeScript definition
+        const res: any = await MDS.cmd.maxcontacts();
         console.log("📡 Full MDS response:", res);
 
         let list: Contact[] = [];
 
+        // The response structure from MDS maxcontacts is:
+        // res.response.contacts (array of contacts)
         if (res?.response?.contacts && Array.isArray(res.response.contacts)) {
           list = res.response.contacts;
-        } else if (res?.contacts && Array.isArray(res.contacts)) {
-          list = res.contacts;
+        } else if (res?.response && Array.isArray(res.response)) {
+          list = res.response;
+        } else if (res?.response?.response && Array.isArray(res.response.response)) {
+          list = res.response.response;
         } else if (Array.isArray(res)) {
           list = res;
         }
@@ -132,7 +138,7 @@ export default function CheckContacts() {
                 navigate({
                   to: "/chat/$address",
                   params: {
-                    address: c.currentaddress || c.extradata?.minimaaddress || "",
+                    address: c.publickey || c.currentaddress || c.extradata?.minimaaddress || "",
                   },
                 })
               }
