@@ -57,51 +57,57 @@ class MinimaService {
       DATABASE
     ---------------------------------------------------------------------------- */
     initDB() {
-        const initsql = `
-      CREATE TABLE IF NOT EXISTS "MESSAGES" (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        roomname VARCHAR(160) NOT NULL,
-        publickey VARCHAR(512) NOT NULL,
-        username VARCHAR(160) NOT NULL,
-        type VARCHAR(64) NOT NULL,
-        message VARCHAR(512) NOT NULL,
-        filedata CLOB NOT NULL,
-        customid VARCHAR(128) NOT NULL DEFAULT '0x00',
-        state VARCHAR(128) NOT NULL DEFAULT '',
-        read INT NOT NULL DEFAULT 0,
-        date BIGINT NOT NULL
-      )
-    `;
+        const initsql = "CREATE TABLE IF NOT EXISTS CHAT_MESSAGES ( "
+            + "  id BIGINT AUTO_INCREMENT PRIMARY KEY, "
+            + "  roomname VARCHAR(160) NOT NULL, "
+            + "  publickey VARCHAR(512) NOT NULL, "
+            + "  username VARCHAR(160) NOT NULL, "
+            + "  type VARCHAR(64) NOT NULL, "
+            + "  message VARCHAR(512) NOT NULL, "
+            + "  filedata CLOB NOT NULL, "
+            + "  customid VARCHAR(128) NOT NULL DEFAULT '0x00', "
+            + "  state VARCHAR(128) NOT NULL DEFAULT '', "
+            + "  read INT NOT NULL DEFAULT 0, "
+            + "  date BIGINT NOT NULL "
+            + " )";
+
         MDS.sql(initsql, (res: any) => {
             if (!res.status) {
                 console.error("❌ [DB] Failed to create table:", res.error);
+            } else {
+                console.log("✅ [DB] CHAT_MESSAGES table initialized");
             }
         });
     }
 
     insertMessage(msg: ChatMessage) {
-        const { roomname, publickey, username, type, message, filedata = "" } = msg;
+        const { roomname, publickey, username, type, message, filedata = "", state = "" } = msg;
         const encodedMsg = encodeURIComponent(message).replace(/'/g, "%27");
         const sql = `
-      INSERT INTO "MESSAGES" (roomname, publickey, username, type, message, filedata, date)
-      VALUES ('${roomname}', '${publickey}', '${username}', '${type}', '${encodedMsg}', '${filedata}', ${Date.now()})
+      INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,state,date)
+      VALUES ('${roomname}','${publickey}','${username}','${type}','${encodedMsg}','${filedata}','${state}',${Date.now()})
     `;
-        MDS.sql(sql);
+        console.log("💾 [SQL] Executing INSERT:", sql);
+        MDS.sql(sql, (res: any) => {
+            console.log("💾 [SQL] INSERT result:", res);
+        });
     }
 
     getMessages(publickey: string): Promise<ChatMessage[]> {
         return new Promise((resolve) => {
             const sql = `
-        SELECT * FROM "MESSAGES"
+        SELECT * FROM CHAT_MESSAGES
         WHERE publickey='${publickey}'
         ORDER BY id ASC
       `;
+            console.log("💾 [SQL] Executing SELECT:", sql);
             MDS.sql(sql, (res: any) => {
+                console.log("💾 [SQL] SELECT result:", res);
                 if (!res.status || !res.rows) {
                     resolve([]);
                     return;
                 }
-                resolve(res.rows as ChatMessage[]);
+                resolve(res.rows);
             });
         });
     }
@@ -156,15 +162,34 @@ class MinimaService {
                 const json = JSON.parse(datastr) as IncomingMessagePayload;
 
                 if (json.type === "read") {
+                    console.log("📖 [MAXIMA] Read receipt received from", from);
                     // Mark my sent messages as read by them
-                    const sql = `UPDATE "MESSAGES" SET STATE='read' WHERE publickey='${from}' AND username='Me'`;
-                    MDS.sql(sql);
+                    const sql = `UPDATE CHAT_MESSAGES SET state='read' WHERE publickey='${from}' AND username='Me'`;
+                    console.log("💾 [SQL] Executing UPDATE (read):", sql);
+                    MDS.sql(sql, (res: any) => {
+                        console.log("💾 [SQL] UPDATE result:", res);
+                        console.log("✅ [DB] Updated messages to 'read' status:", res);
 
-                    // Notify listeners to refresh UI
-                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'read_receipt' }));
+                        // Notify listeners to refresh UI AFTER DB update completes
+                        this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'read_receipt' }));
+                    });
                     return;
                 }
 
+                if (json.type === "delivery_receipt") {
+                    console.log("📬 [MAXIMA] Delivery receipt received from", from);
+                    // Mark my sent messages as delivered (if not already read)
+                    const sql = `UPDATE CHAT_MESSAGES SET state='delivered' WHERE publickey='${from}' AND username='Me' AND state!='read'`;
+                    MDS.sql(sql, (res: any) => {
+                        console.log("✅ [DB] Updated messages to 'delivered' status:", res);
+
+                        // Notify listeners to refresh UI AFTER DB update completes
+                        this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'delivery_receipt' }));
+                    });
+                    return;
+                }
+
+                // Insert received message into DB (no state - only sent messages have state)
                 this.insertMessage({
                     roomname: json.username,
                     publickey: from,
@@ -172,10 +197,15 @@ class MinimaService {
                     type: json.type,
                     message: json.message,
                     filedata: json.filedata || "",
+                    // state is empty for received messages - only sent messages track delivery status
                 });
 
-                console.log("✅ [CharmChain] Missatge rebut de", from, ":", json.message);
+                console.log("✅ [CharmChain] Missatge rebut i guardat:", json.message);
 
+                // Send delivery receipt automatically
+                this.sendDeliveryReceipt(from);
+
+                // Notify UI to refresh
                 this.newMessageCallbacks.forEach((cb) => cb(json));
             } catch (err) {
                 console.error("❌ [CharmChain] Error processant missatge:", err);
@@ -238,6 +268,7 @@ class MinimaService {
                 type,
                 message,
                 filedata,
+                state: "sent", // Initial state
             });
         } catch (err) {
             console.error("❌ [CharmChain] Error enviant missatge:", err);
@@ -246,6 +277,7 @@ class MinimaService {
     }
 
     async sendReadReceipt(toPublicKey: string) {
+        console.log("📤 [CharmChain] Sending read receipt to", toPublicKey);
         try {
             const payload = {
                 message: "",
@@ -267,12 +299,47 @@ class MinimaService {
                 } as any,
             });
 
+            console.log("✅ [CharmChain] Read receipt sent successfully");
+
             // Mark received messages as read locally
-            const sql = `UPDATE "MESSAGES" SET STATE='read' WHERE publickey='${toPublicKey}' AND username!='Me' AND STATE!='read'`;
-            MDS.sql(sql);
+            const sql = `UPDATE CHAT_MESSAGES SET state='read' WHERE publickey='${toPublicKey}' AND username!='Me' AND state!='read'`;
+            MDS.sql(sql, (res: any) => {
+                console.log("✅ [DB] Marked received messages as read locally:", res);
+            });
 
         } catch (err) {
             console.error("❌ [CharmChain] Error sending read receipt:", err);
+        }
+    }
+
+    async sendDeliveryReceipt(toPublicKey: string) {
+        console.log("📤 [CharmChain] Sending delivery receipt to", toPublicKey);
+        try {
+            const payload = {
+                message: "",
+                type: "delivery_receipt",
+                username: "Me",
+                filedata: ""
+            };
+
+            const jsonStr = JSON.stringify(payload);
+            const hexData = "0x" + this.utf8ToHex(jsonStr).toUpperCase();
+
+            // Send without polling/waiting too much
+            MDS.cmd.maxima({
+                params: {
+                    action: "send",
+                    publickey: toPublicKey,
+                    application: "charmchain",
+                    data: hexData,
+                    poll: false,
+                } as any,
+            });
+
+            console.log("✅ [CharmChain] Delivery receipt sent successfully");
+
+        } catch (err) {
+            console.error("❌ [CharmChain] Error sending delivery receipt:", err);
         }
     }
 
@@ -293,11 +360,7 @@ class MinimaService {
     }
 
     processEvent(event: any) {
-        // Log event type to confirm MDS is alive (skip MINIMALOG to reduce noise)
-        if (event.event !== "MAXIMA" && event.event !== "MINIMALOG") {
-            console.log("🔔 [MDS] Event received:", event.event);
-        }
-
+        // Only log MAXIMA events to reduce noise
         if (event.event === "MAXIMA") {
             console.log("✉️ [MDS] MAXIMA event detected:", event);
             this.processIncomingMessage(event);

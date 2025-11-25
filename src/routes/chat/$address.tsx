@@ -29,9 +29,20 @@ interface ParsedMessage {
   charm: { id: string } | null;
   amount: number | null;
   timestamp?: number;
+  status?: 'sent' | 'delivered' | 'read';
 }
 
 function ChatPage() {
+  // Helper to remove duplicate messages (by timestamp + text)
+  const deduplicateMessages = (msgs: ParsedMessage[]) => {
+    const seen = new Set<string>();
+    return msgs.filter((m) => {
+      const key = `${m.timestamp}-${m.text}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
   const { address } = Route.useParams();
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
@@ -132,10 +143,12 @@ function ChatPage() {
             charm: charmObj,
             amount: isCharm ? Number(row.READ || 0) : null,
             timestamp: Number(row.DATE || 0),
+            status: (row.STATE as 'sent' | 'delivered' | 'read') || 'sent',
           };
         });
 
-        setMessages(parsedMessages);
+        const deduplicatedMessages = deduplicateMessages(parsedMessages);
+        setMessages(deduplicatedMessages);
       } catch (err) {
         console.error("[DB] Error loading messages:", err);
       }
@@ -150,10 +163,15 @@ function ChatPage() {
   useEffect(() => {
     if (!contact) return;
 
-    const handleNewMessage = () => {
-      // Reload messages to include the new one
+    const handleNewMessage = (payload: any) => {
+      console.log("🔔 [ChatPage] Message callback triggered:", payload);
+
+      // Reload messages from DB to get latest state
+      // This handles both new messages AND status updates from receipts
       minimaService.getMessages(address).then((rawMessages) => {
         if (!Array.isArray(rawMessages)) return;
+
+        console.log("📥 [ChatPage] Reloaded messages from DB:", rawMessages);
 
         const parsedMessages = rawMessages.map((row: any) => {
           const isCharm = row.TYPE === "charm";
@@ -165,12 +183,28 @@ function ChatPage() {
             charm: charmObj,
             amount: isCharm ? Number(row.READ || 0) : null,
             timestamp: Number(row.DATE || 0),
+            status: (row.STATE as 'sent' | 'delivered' | 'read') || 'sent',
           };
         });
 
-        setMessages(parsedMessages);
+        const deduplicatedMessages = deduplicateMessages(parsedMessages);
+        setMessages(deduplicatedMessages);
+
+        // If this is a NEW MESSAGE (not a receipt), send read receipt
+        if (payload.type !== 'read_receipt' && payload.type !== 'delivery_receipt') {
+          console.log("📖 [ChatPage] Sending read receipt for new message");
+          if (contact.publickey) {
+            minimaService.sendReadReceipt(contact.publickey);
+          }
+        }
       });
     };
+
+    // Send read receipt immediately when entering the chat
+    console.log("📖 [ChatPage] Entering chat, sending initial read receipt");
+    if (contact.publickey) {
+      minimaService.sendReadReceipt(contact.publickey);
+    }
 
     // Subscribe to new messages
     minimaService.onNewMessage(handleNewMessage);
@@ -201,7 +235,7 @@ function ChatPage() {
 
     const username = contact?.extradata?.name || "Unknown";
 
-    const newMsg: ParsedMessage = { text: input, fromMe: true, charm: null, amount: null, timestamp: Date.now() };
+    const newMsg: ParsedMessage = { text: input, fromMe: true, charm: null, amount: null, timestamp: Date.now(), status: 'sent' };
     setMessages((prev) => [...prev, newMsg]);
 
     try {
@@ -229,7 +263,7 @@ function ChatPage() {
 
     setMessages((prev) => [
       ...prev,
-      { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: Date.now() }
+      { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: Date.now(), status: 'sent' }
     ]);
 
     console.log("[ChatPage] Sending charm to publickey:", contact.publickey, charmId, amount);
@@ -242,11 +276,11 @@ function ChatPage() {
       RENDER
   ---------------------------------------------------------------------------- */
   return (
-    <div className="flex-1 flex flex-col h-full p-3 bg-blue-50">
+    <div className="h-full flex flex-col p-3 bg-blue-50">
       <div className="flex flex-col h-full bg-white rounded-2xl overflow-hidden shadow-md">
 
-        {/* HEADER */}
-        <div className="bg-blue-600 text-white p-4 flex items-center gap-3">
+        {/* HEADER - Fixed at top */}
+        <div className="bg-blue-600 text-white p-4 flex items-center gap-3 flex-shrink-0">
           <img
             src={getAvatar(contact)}
             alt="Avatar"
@@ -262,7 +296,7 @@ function ChatPage() {
           </div>
         </div>
 
-        {/* CHAT BODY */}
+        {/* CHAT BODY - Scrollable */}
         <div className="flex-1 p-4 overflow-y-auto flex flex-col">
           {messages.length === 0 && (
             <p className="text-center text-blue-400 italic">
@@ -288,6 +322,7 @@ function ChatPage() {
                   charm={msg.charm}
                   amount={msg.amount}
                   timestamp={msg.timestamp}
+                  status={msg.status}
                 />
               </div>
             );
@@ -296,8 +331,8 @@ function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* INPUT BAR */}
-        <div className="p-3 bg-blue-100 flex gap-2 items-center">
+        {/* INPUT BAR - Fixed at bottom */}
+        <div className="p-3 bg-blue-100 flex gap-2 items-center flex-shrink-0">
           <button
             className="p-2 rounded bg-purple-600 text-white hover:bg-purple-700"
             onClick={() => setShowCharmSelector(true)}

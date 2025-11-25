@@ -39,37 +39,37 @@ export default function Header({ onToggleMenu }: HeaderProps) {
     : currentItem?.label || "Have a nice day";
 
   useEffect(() => {
-  if (!loaded) return;
-  let isMounted = true;
+    if (!loaded) return;
+    let isMounted = true;
 
-  const fetchUser = async () => {
-    try {
-      const res = await MDS.cmd.maxima({ params: { action: "info" } });
-      const info = (res.response as any) || {};
+    const fetchUser = async () => {
+      try {
+        const res = await MDS.cmd.maxima({ params: { action: "info" } });
+        const info = (res.response as any) || {};
 
-      if (isMounted && info) {
-        const name = info.name || "User";
-        const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar;
-        setUserName(name);
-        setUserAvatar(icon);
+        if (isMounted && info) {
+          const name = info.name || "User";
+          const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar;
+          setUserName(name);
+          setUserAvatar(icon);
+        }
+      } catch (err) {
+        console.error("Error fetching user info:", err);
       }
-    } catch (err) {
-      console.error("Error fetching user info:", err);
-    }
-  };
+    };
 
-  fetchUser();
-  return () => {
-    isMounted = false;
-  };
-}, [loaded]);
+    fetchUser();
+    return () => {
+      isMounted = false;
+    };
+  }, [loaded]);
 
 
   const truncateName = (name: string) =>
     name.length > 8 ? name.slice(0, 8) + "…" : name;
 
   return (
-    <header className="w-full shadow-lg z-40">
+    <header className="w-full shadow-lg z-40 flex-shrink-0">
       {/* Header principal */}
       <div className="flex justify-between items-center bg-blue-600 text-white px-6 py-3">
         <div className="flex items-center gap-3">
@@ -104,9 +104,8 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         <h2 className="text-lg font-medium">{pageTitle}</h2>
         <Wifi
           size={20}
-          className={`${
-            loaded ? "text-green-600" : "text-red-400"
-          } transition-colors`}
+          className={`${loaded ? "text-green-600" : "text-red-400"
+            } transition-colors`}
         />
       </div>
     </header>

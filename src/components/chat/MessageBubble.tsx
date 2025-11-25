@@ -11,7 +11,7 @@ interface MessageBubbleProps {
   charm: { id: string } | null;
   amount: number | null;
   timestamp?: number;
-  status?: 'sent' | 'read';
+  status?: 'sent' | 'delivered' | 'read';
 }
 
 export default function MessageBubble({ fromMe, text, charm, amount, timestamp, status }: MessageBubbleProps) {
@@ -54,23 +54,49 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
       )}
 
       {/* Timestamp & Status */}
-      <div className={`flex items-center gap-1 mt-1 self-end ${fromMe ? "text-pink-100" : "text-gray-500"}`}>
+      <div className={`flex items-center gap-1 mt-1 self-end ${fromMe ? "text-white/80" : "text-gray-500"}`}>
         <span className="text-[10px]">
           {timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
         </span>
 
         {fromMe && (
-          <div className="flex">
-            {/* First check */}
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={status === 'read' ? "text-blue-300" : "text-pink-200"}>
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
+          <div className="flex items-center gap-0.5">
+            {/* 
+                STATUS LOGIC:
+                - sent: 1 green arrow (→) - message sent via Maxima
+                - delivered: 1 green check (✓) - message received by recipient
+                - read: 2 green checks (✓✓) - message read by recipient
+                - undefined/empty: show arrow as fallback for sent messages
+             */}
 
-            {/* Second check (only if read) */}
-            {status === 'read' && (
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-300 -ml-2">
+            {(status === 'sent' || !status) && (
+              /* Arrow: Message sent via Maxima (or no status yet) */
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                className="text-green-400">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            )}
+
+            {status === 'delivered' && (
+              /* Single check: Message delivered to recipient */
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                className="text-green-400">
                 <polyline points="20 6 9 17 4 12"></polyline>
               </svg>
+            )}
+
+            {status === 'read' && (
+              /* Double check: Message read by recipient */
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-green-400">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-green-400 -ml-2">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </>
             )}
           </div>
         )}
