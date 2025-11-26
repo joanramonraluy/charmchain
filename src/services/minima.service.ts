@@ -163,47 +163,25 @@ class MinimaService {
 
                 if (json.type === "read") {
                     console.log("📖 [MAXIMA] Read receipt received from", from);
-                    // Mark my sent messages as read by them
-                    const sql = `UPDATE CHAT_MESSAGES SET state='read' WHERE publickey='${from}' AND username='Me'`;
-                    console.log("💾 [SQL] Executing UPDATE (read):", sql);
-                    MDS.sql(sql, (res: any) => {
-                        console.log("💾 [SQL] UPDATE result:", res);
-                        console.log("✅ [DB] Updated messages to 'read' status:", res);
-
-                        // Notify listeners to refresh UI AFTER DB update completes
-                        this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'read_receipt' }));
-                    });
+                    // DB update is handled by Service Worker
+                    // Notify listeners to refresh UI
+                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'read_receipt' }));
                     return;
                 }
 
                 if (json.type === "delivery_receipt") {
                     console.log("📬 [MAXIMA] Delivery receipt received from", from);
-                    // Mark my sent messages as delivered (if not already read)
-                    const sql = `UPDATE CHAT_MESSAGES SET state='delivered' WHERE publickey='${from}' AND username='Me' AND state!='read'`;
-                    MDS.sql(sql, (res: any) => {
-                        console.log("✅ [DB] Updated messages to 'delivered' status:", res);
-
-                        // Notify listeners to refresh UI AFTER DB update completes
-                        this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'delivery_receipt' }));
-                    });
+                    // DB update is handled by Service Worker
+                    // Notify listeners to refresh UI
+                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'delivery_receipt' }));
                     return;
                 }
 
-                // Insert received message into DB (no state - only sent messages have state)
-                this.insertMessage({
-                    roomname: json.username,
-                    publickey: from,
-                    username: json.username,
-                    type: json.type,
-                    message: json.message,
-                    filedata: json.filedata || "",
-                    // state is empty for received messages - only sent messages track delivery status
-                });
+                // Normal message
+                console.log("✅ [CharmChain] Missatge rebut (guardat per Service Worker):", json.message);
 
-                console.log("✅ [CharmChain] Missatge rebut i guardat:", json.message);
-
-                // Send delivery receipt automatically
-                this.sendDeliveryReceipt(from);
+                // DB insertion and Delivery Receipt are handled by Service Worker
+                // We only need to notify the UI
 
                 // Notify UI to refresh
                 this.newMessageCallbacks.forEach((cb) => cb(json));

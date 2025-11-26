@@ -13,11 +13,10 @@ function hexToUtf8(s) {
 
 // Convert UTF8 to HEX
 function utf8ToHex(s) {
-    var encoder = new TextEncoder();
     var r = "";
-    var bytes = encoder.encode(s);
-    for (var i = 0; i < bytes.length; i++) {
-        var b = bytes[i];
+    var utf8 = unescape(encodeURIComponent(s));
+    for (var i = 0; i < utf8.length; i++) {
+        var b = utf8.charCodeAt(i);
         r += ("0" + b.toString(16)).slice(-2);
     }
     return r;
