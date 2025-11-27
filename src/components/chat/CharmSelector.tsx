@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
 import { Player } from "@lottiefiles/react-lottie-player";
 
 // Llista temporal de charms amb Lottie JSON
@@ -16,9 +15,9 @@ interface Charm {
 }
 
 const charms: Charm[] = [
-  { id: "star", label: "⭐", name: "Estrella", animation: starAnim },
-  { id: "heart", label: "❤️", name: "Cor", animation: heartAnim },
-  { id: "fire", label: "🔥", name: "Foc", animation: fireAnim }
+  { id: "star", label: "⭐", name: "Star", animation: starAnim },
+  { id: "heart", label: "❤️", name: "Heart", animation: heartAnim },
+  { id: "fire", label: "🔥", name: "Fire", animation: fireAnim }
 ];
 
 const presetAmounts = [1, 5, 10, 20];
@@ -50,67 +49,65 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
       >
         <motion.div
-          className="bg-white rounded-2xl shadow-xl p-6 w-80 space-y-4"
+          className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-96 max-w-full mx-4"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
         >
-          <div className="flex justify-between items-center mb-2">
-            <h2 className="text-xl font-semibold">Envia un charm</h2>
-            <button onClick={onClose} className="p-1">
-              <X className="w-5 h-5" />
-            </button>
+          <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Send a Charm</h3>
+
+          {/* Charm selector */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select Charm</label>
+            <div className="grid grid-cols-3 gap-3">
+              {charms.map((c) => (
+                <button
+                  key={c.id}
+                  className={`p - 3 rounded - lg border transition - all ${selectedCharm === c
+                      ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 border-2"
+                      : "border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    } `}
+                  onClick={() => setSelectedCharm(c)}
+                  title={c.name}
+                >
+                  <Player
+                    autoplay
+                    loop
+                    src={c.animation}
+                    style={{ height: 60, width: 60 }}
+                  />
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Charm selector amb Lottie preview */}
-          <div className="grid grid-cols-3 gap-3 text-2xl">
-            {charms.map((c) => (
-              <button
-                key={c.id}
-                className={`p-2 rounded-xl border text-center transition-all ${selectedCharm === c
-                  ? "bg-purple-200 border-purple-500 scale-105 shadow"
-                  : "border-gray-300 hover:bg-gray-100"
-                  }`}
-                onClick={() => setSelectedCharm(c)}
-                title={c.name}
-              >
-                <Player
-                  autoplay
-                  loop
-                  src={c.animation}
-                  style={{ height: 60, width: 60 }}
-                />
-              </button>
-            ))}
-          </div>
-
-          {/* Quantitat de Minima */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Quantitat de Minima</label>
-            <div className="flex flex-wrap gap-2">
+          {/* Amount selector */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Minima Amount</label>
+            <div className="flex flex-wrap gap-2 mb-3">
               {presetAmounts.map((amt) => (
                 <button
                   key={amt}
-                  className={`px-3 py-1 rounded-xl border transition-all ${selectedAmount === amt
-                    ? "bg-purple-200 border-purple-500"
-                    : "border-gray-300 hover:bg-gray-100"
-                    }`}
+                  className={`px - 4 py - 2 rounded - md border transition - all font - medium ${selectedAmount === amt
+                      ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
+                      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    } `}
                   onClick={() => setSelectedAmount(amt)}
                 >
                   {amt}
                 </button>
               ))}
               <button
-                className={`px-3 py-1 rounded-xl border transition-all ${selectedAmount === "custom"
-                  ? "bg-purple-200 border-purple-500"
-                  : "border-gray-300 hover:bg-gray-100"
-                  }`}
+                className={`px - 4 py - 2 rounded - md border transition - all font - medium ${selectedAmount === "custom"
+                    ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
+                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  } `}
                 onClick={() => setSelectedAmount("custom")}
               >
                 Other
@@ -119,25 +116,33 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
             {selectedAmount === "custom" && (
               <input
                 type="number"
-                className="w-full border rounded-xl p-2 mt-1"
+                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
                 value={customAmount}
                 min={1}
-                placeholder="Introdueix la quantitat"
+                placeholder="Enter amount"
                 onChange={(e) => setCustomAmount(e.target.value)}
               />
             )}
           </div>
 
-          <button
-            onClick={handleSend}
-            disabled={!selectedCharm || !selectedAmount}
-            className={`w-full py-2 rounded-xl text-lg font-medium transition-all ${selectedCharm && selectedAmount
-              ? "bg-purple-600 text-white hover:bg-purple-700"
-              : "bg-gray-300 text-gray-600 cursor-not-allowed"
-              }`}
-          >
-            Send
-          </button>
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={!selectedCharm || !selectedAmount}
+              className={`px - 4 py - 2 rounded - md transition - colors font - medium ${selectedCharm && selectedAmount
+                  ? "bg-purple-600 hover:bg-purple-700 text-white"
+                  : "bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                } `}
+            >
+              Send
+            </button>
+          </div>
         </motion.div>
       </motion.div>
     </AnimatePresence>

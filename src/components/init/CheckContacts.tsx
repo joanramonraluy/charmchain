@@ -113,27 +113,13 @@ export default function CheckContacts() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-white">
-      {/* Header */}
-      <div className="bg-[#0088cc] text-white p-4 shadow-md flex items-center gap-4 z-10">
-        <button
-          onClick={() => window.history.back()}
-          className="p-1 hover:bg-white/10 rounded-full transition-colors"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-        </button>
-        <div>
-          <h1 className="text-xl font-bold">New Message</h1>
-          <p className="text-xs opacity-80">{contacts.length} contacts</p>
-        </div>
-      </div>
+    <div className="h-screen flex flex-col bg-gray-50">
+
 
       {/* Contacts List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-3">
         {contacts.length > 0 ? (
-          <div className="divide-y divide-gray-100">
+          <div className="space-y-2">
             {contacts.map((c, i) => (
               <div
                 key={i}
@@ -145,37 +131,38 @@ export default function CheckContacts() {
                     },
                   })
                 }
-                className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer transition-colors active:bg-gray-100"
+                className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md cursor-pointer transition-shadow active:bg-gray-50"
               >
-                {/* Avatar */}
-                <div className="relative flex-shrink-0">
-                  <img
-                    src={getAvatar(c)}
-                    alt={c.extradata?.name || "Unknown"}
-                    className="w-12 h-12 rounded-full object-cover bg-gray-200"
-                    onError={(e: any) => {
-                      e.target.src = defaultAvatar;
-                    }}
-                  />
-                  {c.samechain && (
-                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-baseline mb-0.5">
-                    <h3 className="font-semibold text-gray-900 truncate text-[16px]">
-                      {c.extradata?.name || "Unknown"}
-                    </h3>
-                    <span className={`text-xs ${c.samechain ? 'text-[#0088cc]' : 'text-gray-400'}`}>
-                      {c.samechain ? "online" : timeAgo(c.lastseen)}
-                    </span>
+                <div className="flex items-center gap-3">
+                  {/* Avatar */}
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={getAvatar(c)}
+                      alt={c.extradata?.name || "Unknown"}
+                      className="w-12 h-12 rounded-full object-cover bg-gray-200"
+                      onError={(e: any) => {
+                        e.target.src = defaultAvatar;
+                      }}
+                    />
+                    {c.samechain && (
+                      <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                    )}
                   </div>
 
-                  <p className="text-sm text-gray-500 truncate font-mono opacity-70">
-                    {c.currentaddress ? `${c.currentaddress.slice(0, 10)}...` : ""}
-                  </p>
+                  {/* Contact Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <h3 className="font-semibold text-gray-900 truncate">
+                        {c.extradata?.name || "Unknown"}
+                      </h3>
+                      <span className="text-xs text-gray-500 flex-shrink-0">
+                        {timeAgo(c.lastseen)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {c.publickey?.slice(0, 16)}...
+                    </p>
+                  </div>
                 </div>
               </div>
             ))}

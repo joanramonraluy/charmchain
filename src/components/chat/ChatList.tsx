@@ -168,34 +168,14 @@ export default function ChatList() {
     };
 
     return (
-        <div className="h-screen flex flex-col bg-white">
+        <div className="h-screen flex flex-col bg-gray-50">
             {/* App Bar / Header */}
-            <div className="bg-[#0088cc] text-white p-4 shadow-md flex items-center justify-between z-10">
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={() => window.dispatchEvent(new CustomEvent('open-sidebar'))}
-                        className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors md:hidden"
-                    >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                        </svg>
-                    </button>
-                    <h1 className="text-xl font-bold">CharmChain</h1>
-                </div>
-                <button
-                    onClick={() => navigate({ to: "/contacts" })}
-                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                </button>
-            </div>
+
 
             {/* Chat List */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto p-3">
                 {chats.length > 0 ? (
-                    <div className="divide-y divide-gray-100">
+                    <div className="space-y-2">
                         {chats.map((chat, i) => (
                             <div
                                 key={i}
@@ -207,40 +187,35 @@ export default function ChatList() {
                                         },
                                     })
                                 }
-                                className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer transition-colors active:bg-gray-100"
+                                className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md cursor-pointer transition-shadow active:bg-gray-50"
                             >
-                                {/* Avatar */}
-                                <img
-                                    src={getAvatar(chat.publickey)}
-                                    alt={getName(chat)}
-                                    className="w-12 h-12 rounded-full object-cover bg-gray-200 flex-shrink-0"
-                                    onError={(e: any) => {
-                                        e.target.src = defaultAvatar;
-                                    }}
-                                />
+                                <div className="flex items-center gap-3">
+                                    {/* Avatar */}
+                                    <img
+                                        src={getAvatar(chat.publickey)}
+                                        alt={getName(chat)}
+                                        className="w-12 h-12 rounded-full object-cover bg-gray-200 flex-shrink-0"
+                                        onError={(e: any) => {
+                                            e.target.src = defaultAvatar;
+                                        }}
+                                    />
 
-                                {/* Content */}
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex justify-between items-baseline mb-1">
-                                        <h3 className="font-semibold text-gray-900 truncate text-[16px]">
-                                            {getName(chat)}
-                                        </h3>
-                                        <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
-                                            {formatTime(chat.lastMessageDate)}
-                                        </span>
-                                    </div>
-
-                                    <div className="flex items-center">
-                                        <p className="text-sm text-gray-500 truncate flex-1">
+                                    {/* Chat Info */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-baseline justify-between gap-2">
+                                            <h3 className="font-semibold text-gray-900 truncate">
+                                                {getName(chat)}
+                                            </h3>
+                                            <span className="text-xs text-gray-500 flex-shrink-0">
+                                                {formatTime(chat.lastMessageDate)}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-gray-600 truncate mt-0.5">
                                             {chat.username === "Me" && (
                                                 <span className="text-[#0088cc] mr-1">You:</span>
                                             )}
                                             {getLastMessagePreview(chat)}
                                         </p>
-                                        {/* Unread badge placeholder - if we had unread count */}
-                                        {/* <span className="ml-2 bg-[#0088cc] text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[1.25rem] text-center">
-                      2
-                    </span> */}
                                     </div>
                                 </div>
                             </div>
@@ -276,6 +251,6 @@ export default function ChatList() {
                     </svg>
                 </button>
             </div>
-        </div>
+        </div >
     );
 }

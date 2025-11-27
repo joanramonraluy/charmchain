@@ -1,6 +1,6 @@
 // src/routes/chat/$address.tsx
 import { useEffect, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import CharmSelector from "../../components/chat/CharmSelector";
 import MessageBubble from "../../components/chat/MessageBubble";
@@ -52,6 +52,7 @@ function ChatPage() {
   const [showTokenSelector, setShowTokenSelector] = useState(false);
   const [showAttachments, setShowAttachments] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   const defaultAvatar =
     "data:image/svg+xml;base64," +
@@ -293,10 +294,10 @@ function ChatPage() {
   return (
     <div className="h-screen flex flex-col bg-[#E5DDD5]">
       {/* HEADER - Fixed at top */}
-      <div className="bg-[#0088cc] text-white p-2 px-4 flex items-center gap-3 flex-shrink-0 shadow-sm z-10">
+      <div className="bg-[#0088cc] text-white p-4 px-4 flex items-center gap-3 flex-shrink-0 shadow-sm z-10">
         {/* Back button */}
         <button
-          onClick={() => window.history.back()}
+          onClick={() => navigate({ to: '/' })}
           className="p-2 hover:bg-white/10 rounded-full transition-colors"
           title="Back"
         >
@@ -335,7 +336,7 @@ function ChatPage() {
       </div>
 
       {/* CHAT BODY - Scrollable */}
-      <div className="flex-1 overflow-y-auto flex flex-col p-2 sm:p-4 bg-[#f0f2f5] relative">
+      <div className="flex-1 overflow-y-auto flex flex-col p-2 sm:p-4 bg-gray-50 relative">
         {/* Custom Background Pattern (Subtle Dot Grid) */}
         <div
           className="absolute inset-0 opacity-[0.4] pointer-events-none"
@@ -417,13 +418,13 @@ function ChatPage() {
           title="Attachments"
         >
           <svg className="w-6 h-6 transform rotate-45" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 0 102.828 2.828l6.414-6.586a4 0 00-5.656-5.656l-6.415 6.585a6 0 108.486 8.486L20.5 13" />
           </svg>
         </button>
 
-        <div className="flex-1 bg-white rounded-2xl flex items-center border border-white focus-within:border-white shadow-sm px-4 py-2 mb-1">
+        <div className="flex-1 bg-white rounded-2xl flex items-center border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent shadow-sm px-4 py-2 mb-1 transition-all">
           <input
-            className="flex-1 bg-transparent border-none focus:ring-0 text-gray-900 placeholder-gray-500 text-[15px] max-h-32 py-1"
+            className="flex-1 bg-transparent outline-none text-gray-900 placeholder-gray-500 text-[15px] max-h-32 py-1"
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}

@@ -12,8 +12,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const router = useRouterState();
   const currentPath = router.location.pathname;
 
-  // Pages that handle their own header
-  const hasCustomHeader = currentPath === "/" || currentPath.startsWith("/chat/") || currentPath === "/contacts";
+  // Pages that handle their own header (only chat detail for now)
+  const hasCustomHeader = currentPath.startsWith("/chat/");
 
   useEffect(() => {
     const handleOpenSidebar = () => setSidebarOpen(true);
