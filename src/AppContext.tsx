@@ -34,6 +34,9 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
           // Initialize database after MDS is ready
           minimaService.initDB()
 
+          // Initialize profile (publish address for token receiving)
+          minimaService.initProfile()
+
           const command = await MDS.cmd.block()
           setBlock(command.response)
         }

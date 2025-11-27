@@ -41,12 +41,18 @@ MDS.init(function (msg) {
             + "  customid varchar(128) NOT NULL DEFAULT '0x00', "
             + "  state varchar(128) NOT NULL DEFAULT '', "
             + "  read int NOT NULL DEFAULT 0, "
+            + "  amount int NOT NULL DEFAULT 0, "
             + "  date bigint NOT NULL "
             + " )";
 
         // Run this
         MDS.sql(initsql, function (res) {
             MDS.log("[ServiceWorker] CharmChain DB initialized: " + JSON.stringify(res));
+            // Add amount column to existing tables if it doesn't exist
+            var alterSql = "ALTER TABLE CHAT_MESSAGES ADD COLUMN IF NOT EXISTS amount INT NOT NULL DEFAULT 0";
+            MDS.sql(alterSql, function (alterRes) {
+                MDS.log("[ServiceWorker] Amount column added/verified: " + JSON.stringify(alterRes));
+            });
         });
 
         // Only interested in Maxima
@@ -91,9 +97,12 @@ MDS.init(function (msg) {
                 // URL encode the message and deal with apostrophe
                 var encoded = encodeURIComponent(maxjson.message).replace(/'/g, "%27");
 
+                // Get amount for charm messages (default to 0 for other types)
+                var amount = (maxjson.type === "charm" && maxjson.amount) ? maxjson.amount : 0;
+
                 // Insert into the DB
-                var msgsql = "INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,date) VALUES "
-                    + "('" + maxjson.username + "','" + pubkey + "','" + maxjson.username + "','" + maxjson.type + "','" + encoded + "','" + (maxjson.filedata || "") + "', " + Date.now() + ")";
+                var msgsql = "INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,amount,date) VALUES "
+                    + "('" + maxjson.username + "','" + pubkey + "','" + maxjson.username + "','" + maxjson.type + "','" + encoded + "','" + (maxjson.filedata || "") + "'," + amount + "," + Date.now() + ")";
 
                 // Insert into DB
                 MDS.sql(msgsql, function (res) {

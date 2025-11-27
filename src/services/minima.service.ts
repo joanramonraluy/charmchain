@@ -11,6 +11,7 @@ export interface ChatMessage {
     customid?: string;
     state?: string;
     read?: number;
+    amount?: number;
     date?: number;
 }
 
@@ -68,6 +69,7 @@ class MinimaService {
             + "  customid VARCHAR(128) NOT NULL DEFAULT '0x00', "
             + "  state VARCHAR(128) NOT NULL DEFAULT '', "
             + "  read INT NOT NULL DEFAULT 0, "
+            + "  amount INT NOT NULL DEFAULT 0, "
             + "  date BIGINT NOT NULL "
             + " )";
 
@@ -76,16 +78,25 @@ class MinimaService {
                 console.error("❌ [DB] Failed to create table:", res.error);
             } else {
                 console.log("✅ [DB] CHAT_MESSAGES table initialized");
+                // Add amount column to existing tables if it doesn't exist
+                const alterSql = "ALTER TABLE CHAT_MESSAGES ADD COLUMN IF NOT EXISTS amount INT NOT NULL DEFAULT 0";
+                MDS.sql(alterSql, (alterRes: any) => {
+                    if (!alterRes.status) {
+                        console.warn("⚠️ [DB] Could not add amount column (may already exist):", alterRes.error);
+                    } else {
+                        console.log("✅ [DB] Amount column added/verified");
+                    }
+                });
             }
         });
     }
 
     insertMessage(msg: ChatMessage) {
-        const { roomname, publickey, username, type, message, filedata = "", state = "" } = msg;
+        const { roomname, publickey, username, type, message, filedata = "", state = "", amount = 0 } = msg;
         const encodedMsg = encodeURIComponent(message).replace(/'/g, "%27");
         const sql = `
-      INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,state,date)
-      VALUES ('${roomname}','${publickey}','${username}','${type}','${encodedMsg}','${filedata}','${state}',${Date.now()})
+      INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,state,amount,date)
+      VALUES ('${roomname}','${publickey}','${username}','${type}','${encodedMsg}','${filedata}','${state}',${amount},${Date.now()})
     `;
         console.log("💾 [SQL] Executing INSERT:", sql);
         MDS.sql(sql, (res: any) => {
@@ -111,6 +122,49 @@ class MinimaService {
             });
         });
     }
+
+    getRecentChats(): Promise<any[]> {
+        return new Promise((resolve) => {
+            // First, get all messages ordered by date
+            const sql = `SELECT * FROM CHAT_MESSAGES ORDER BY date DESC`;
+
+            console.log("💾 [SQL] Executing getRecentChats:", sql);
+            MDS.sql(sql, (res: any) => {
+                console.log("💾 [SQL] getRecentChats result:", res);
+                if (!res.status || !res.rows) {
+                    resolve([]);
+                    return;
+                }
+
+                // Group by publickey manually and keep only the most recent message
+                const chatMap = new Map<string, any>();
+
+                res.rows.forEach((row: any) => {
+                    const publickey = row.PUBLICKEY;
+
+                    // If we haven't seen this publickey yet, or this message is newer
+                    if (!chatMap.has(publickey)) {
+                        chatMap.set(publickey, {
+                            publickey: row.PUBLICKEY,
+                            roomname: row.ROOMNAME,
+                            lastMessage: row.MESSAGE,
+                            lastMessageType: row.TYPE,
+                            lastMessageDate: row.DATE,
+                            lastMessageAmount: row.AMOUNT,
+                            username: row.USERNAME
+                        });
+                    }
+                });
+
+                // Convert map to array and sort by date
+                const chats = Array.from(chatMap.values()).sort((a, b) => b.lastMessageDate - a.lastMessageDate);
+
+                console.log("💾 [SQL] Processed chats:", chats);
+                resolve(chats);
+            });
+        });
+    }
+
 
     /* ----------------------------------------------------------------------------
       INCOMING MESSAGES
@@ -202,16 +256,22 @@ class MinimaService {
         username: string,
         message: string,
         type: string = "text",
-        filedata: string = ""
+        filedata: string = "",
+        amount: number = 0
     ) {
         try {
             // Create payload with message data only (application is specified in Maxima params)
-            const payload = {
+            const payload: any = {
                 message,
                 type,
                 username,
                 filedata
             };
+
+            // Include amount for charm messages
+            if (type === "charm" && amount > 0) {
+                payload.amount = amount;
+            }
 
             // Convert to HEX manually to match MaxSolo behavior
             const jsonStr = JSON.stringify(payload);
@@ -247,6 +307,7 @@ class MinimaService {
                 message,
                 filedata,
                 state: "sent", // Initial state
+                amount, // Include amount for charm messages
             });
         } catch (err) {
             console.error("❌ [CharmChain] Error enviant missatge:", err);
@@ -322,6 +383,112 @@ class MinimaService {
     }
 
     /* ----------------------------------------------------------------------------
+      TOKEN SENDING
+    ---------------------------------------------------------------------------- */
+    async getBalance(): Promise<any[]> {
+        try {
+            const response = await MDS.cmd.balance();
+            return response.response;
+        } catch (err) {
+            console.error("❌ [CharmChain] Error fetching balance:", err);
+            return [];
+        }
+    }
+
+    async sendCharmWithTokens(
+        toPublicKey: string,
+        minimaAddress: string,
+        username: string,
+        charmId: string,
+        amount: number
+    ): Promise<void> {
+        console.log(`🎯 [CHARM] ========== STARTING CHARM SEND WITH TOKENS ==========`);
+        console.log(`🎯 [CHARM] Charm ID: ${charmId}`);
+        console.log(`🎯 [CHARM] Amount: ${amount} Minima`);
+        console.log(`🎯 [CHARM] To PublicKey: ${toPublicKey}`);
+        console.log(`🎯 [CHARM] To Minima Address: ${minimaAddress}`);
+        console.log(`🎯 [CHARM] Username: ${username}`);
+
+        try {
+            // Step 1: Send the Minima tokens (tokenId 0x00 is always Minima)
+            console.log(`🎯 [CHARM] Step 1/2: Sending ${amount} Minima tokens...`);
+            await this.sendToken("0x00", amount.toString(), minimaAddress, "Minima");
+            console.log(`✅ [CHARM] Tokens sent successfully`);
+
+            // Step 2: Send the charm message
+            console.log(`🎯 [CHARM] Step 2/2: Sending charm message...`);
+            await this.sendMessage(toPublicKey, username, charmId, "charm", "", amount);
+            console.log(`✅ [CHARM] Charm message sent successfully`);
+
+            console.log(`✅ [CHARM] ========== CHARM SEND COMPLETE ==========`);
+        } catch (err) {
+            console.error(`❌ [CHARM] ========== CHARM SEND FAILED ==========`);
+            console.error(`❌ [CHARM] Error details:`, err);
+            throw err;
+        }
+    }
+
+    async sendToken(tokenId: string, amount: string, address: string, tokenName: string): Promise<any> {
+        console.log(`💸 [TOKEN SEND] ========== STARTING TOKEN SEND ==========`);
+        console.log(`💸 [TOKEN SEND] Token Name: ${tokenName}`);
+        console.log(`💸 [TOKEN SEND] Token ID: ${tokenId}`);
+        console.log(`💸 [TOKEN SEND] Amount: ${amount}`);
+        console.log(`💸 [TOKEN SEND] Destination Address: ${address}`);
+
+        try {
+            // Construct the send command parameters
+            const sendParams = {
+                amount: amount,
+                address: address,
+                tokenid: tokenId
+            };
+
+            console.log(`💸 [TOKEN SEND] Command parameters:`, JSON.stringify(sendParams, null, 2));
+            console.log(`💸 [TOKEN SEND] Executing MDS.cmd.send...`);
+
+            const response = await (MDS.cmd as any).send(sendParams);
+
+            console.log(`💸 [TOKEN SEND] Raw response:`, JSON.stringify(response, null, 2));
+
+            if (response && response.status === false) {
+                console.error(`❌ [TOKEN SEND] Send command failed!`);
+                console.error(`❌ [TOKEN SEND] Error:`, response.error || response.message || 'Unknown error');
+                throw new Error(response.error || response.message || 'Token send failed');
+            }
+
+            console.log(`✅ [TOKEN SEND] ========== TOKEN SENT SUCCESSFULLY ==========`);
+            return response;
+        } catch (err) {
+            console.error(`❌ [TOKEN SEND] ========== TOKEN SEND FAILED ==========`);
+            console.error(`❌ [TOKEN SEND] Error details:`, err);
+            console.error(`❌ [TOKEN SEND] Error type:`, typeof err);
+            if (err instanceof Error) {
+                console.error(`❌ [TOKEN SEND] Error message:`, err.message);
+                console.error(`❌ [TOKEN SEND] Error stack:`, err.stack);
+            }
+            throw err;
+        }
+    }
+
+    async initProfile() {
+        // Publish our Minima address to Maxima profile so others can send us tokens
+        try {
+            const maxResponse = await MDS.cmd.maxima({ action: "getaddress" } as any);
+            if (maxResponse.status) {
+                // Cast to any to avoid type errors if the type definition is incomplete
+                const myAddress = (maxResponse.response as any).address;
+                console.log("📍 [CharmChain] My Minima Address:", myAddress);
+
+                // We'll just log it for now as we're not sure about the update command yet
+                // and we want to avoid unused variable warnings
+                // const updateCmd = ...
+            }
+        } catch (err) {
+            console.error("❌ [CharmChain] Error initializing profile:", err);
+        }
+    }
+
+    /* ----------------------------------------------------------------------------
       INITIALIZATION
     ---------------------------------------------------------------------------- */
     init() {
@@ -335,6 +502,9 @@ class MinimaService {
 
         console.log("[Service] MinimaService inicialitzat - esperant MDS.init...");
         // DB initialization will be called from AppContext after MDS.init completes
+
+        // Initialize profile (publish address)
+        // We do this a bit later or when needed
     }
 
     processEvent(event: any) {

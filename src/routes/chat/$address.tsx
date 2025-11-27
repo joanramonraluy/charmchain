@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import CharmSelector from "../../components/chat/CharmSelector";
 import MessageBubble from "../../components/chat/MessageBubble";
+import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
 
 export const Route = createFileRoute("/chat/$address")({
@@ -48,6 +49,7 @@ function ChatPage() {
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
   const [input, setInput] = useState("");
   const [showCharmSelector, setShowCharmSelector] = useState(false);
+  const [showTokenSelector, setShowTokenSelector] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const defaultAvatar =
@@ -141,7 +143,7 @@ function ChatPage() {
             text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
             fromMe: row.USERNAME === "Me",
             charm: charmObj,
-            amount: isCharm ? Number(row.READ || 0) : null,
+            amount: isCharm ? Number(row.AMOUNT || 0) : null,
             timestamp: Number(row.DATE || 0),
             status: (row.STATE as 'sent' | 'delivered' | 'read') || 'sent',
           };
@@ -181,7 +183,7 @@ function ChatPage() {
             text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
             fromMe: row.USERNAME === "Me",
             charm: charmObj,
-            amount: isCharm ? Number(row.READ || 0) : null,
+            amount: isCharm ? Number(row.AMOUNT || 0) : null,
             timestamp: Number(row.DATE || 0),
             status: (row.STATE as 'sent' | 'delivered' | 'read') || 'sent',
           };
@@ -252,24 +254,107 @@ function ChatPage() {
   /* ----------------------------------------------------------------------------
       SEND CHARM
   ---------------------------------------------------------------------------- */
-  const handleSendCharm = ({ charmId, amount }: { charmId: string; charmLabel?: string; charmAnimation?: any; amount: number }) => {
-    if (!charmId || !amount) return;
+  const handleSendCharm = async ({ charmId, amount }: { charmId: string; charmLabel?: string; charmAnimation?: any; amount: number }) => {
+    console.log(`🎯 [UI] ========== USER INITIATED CHARM SEND ==========`);
+    console.log(`🎯 [UI] Charm ID: ${charmId}`);
+    console.log(`🎯 [UI] Amount: ${amount} Minima`);
+    console.log(`🎯 [UI] Contact:`, contact?.extradata?.name);
+    console.log(`🎯 [UI] Contact PublicKey:`, contact?.publickey);
+    console.log(`🎯 [UI] Contact Minima Address:`, contact?.extradata?.minimaaddress);
+
+    if (!charmId || !amount) {
+      console.error("❌ [UI] Invalid charm or amount");
+      return;
+    }
+
     if (!contact?.publickey) {
-      console.error("[Send] Cannot send charm: no publickey for contact");
+      console.error("❌ [UI] Cannot send charm: no publickey for contact");
+      alert("Cannot send charm: contact has no public key");
+      return;
+    }
+
+    if (!contact?.extradata?.minimaaddress) {
+      console.error("❌ [UI] Cannot send charm: contact has no Minima address");
+      alert("This contact does not have a Minima address in their profile. Cannot send tokens with charm.");
       return;
     }
 
     const username = contact?.extradata?.name || "Unknown";
 
-    setMessages((prev) => [
-      ...prev,
-      { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: Date.now(), status: 'sent' }
-    ]);
+    try {
+      console.log(`🎯 [UI] Closing charm selector...`);
+      setShowCharmSelector(false);
 
-    console.log("[ChatPage] Sending charm to publickey:", contact.publickey, charmId, amount);
+      // Optimistic UI update
+      setMessages((prev) => [
+        ...prev,
+        { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: Date.now(), status: 'sent' }
+      ]);
 
-    minimaService.sendMessage(contact.publickey, username, charmId, "charm")
-      .catch(err => console.error("Error sending charm:", err));
+      console.log(`🎯 [UI] Calling minimaService.sendCharmWithTokens...`);
+      await minimaService.sendCharmWithTokens(
+        contact.publickey,
+        contact.extradata.minimaaddress,
+        username,
+        charmId,
+        amount
+      );
+
+      console.log(`✅ [UI] ========== CHARM SEND COMPLETE ==========`);
+    } catch (err) {
+      console.error(`❌ [UI] ========== CHARM SEND ERROR ==========`);
+      console.error(`❌ [UI] Error details:`, err);
+      alert("Failed to send charm with tokens. Check console for details.");
+    }
+  };
+
+  /* ----------------------------------------------------------------------------
+      SEND TOKEN
+  ---------------------------------------------------------------------------- */
+  const handleSendToken = async (tokenId: string, amount: string, tokenName: string) => {
+    console.log(`🎯 [UI] ========== USER INITIATED TOKEN SEND ==========`);
+    console.log(`🎯 [UI] Token: ${tokenName} (${tokenId})`);
+    console.log(`🎯 [UI] Amount: ${amount}`);
+    console.log(`🎯 [UI] Contact:`, contact?.extradata?.name);
+    console.log(`🎯 [UI] Contact Minima Address:`, contact?.extradata?.minimaaddress);
+
+    if (!contact?.extradata?.minimaaddress) {
+      console.error(`❌ [UI] Cannot send token: contact has no Minima address`);
+      alert("This contact does not have a Minima address in their profile. Cannot send tokens.");
+      return;
+    }
+
+    try {
+      console.log(`🎯 [UI] Closing token selector...`);
+      setShowTokenSelector(false);
+
+      console.log(`🎯 [UI] Calling minimaService.sendToken...`);
+      // 1. Send the token via Minima
+      await minimaService.sendToken(tokenId, amount, contact.extradata.minimaaddress, tokenName);
+
+      console.log(`🎯 [UI] Token sent successfully! Now sending confirmation message...`);
+
+      // 2. Send a chat message confirming the transaction
+      const message = `I sent you ${amount} ${tokenName}`;
+      const username = contact?.extradata?.name || "Unknown";
+
+      console.log(`🎯 [UI] Confirmation message: "${message}"`);
+
+      // Optimistic update
+      setMessages((prev) => [
+        ...prev,
+        { text: message, fromMe: true, charm: null, amount: null, timestamp: Date.now(), status: 'sent' }
+      ]);
+
+      await minimaService.sendMessage(contact.publickey, username, message);
+
+      console.log(`✅ [UI] ========== TOKEN SEND COMPLETE ==========`);
+
+    } catch (err) {
+      console.error(`❌ [UI] ========== TOKEN SEND ERROR ==========`);
+      console.error(`❌ [UI] Error details:`, err);
+      alert("Failed to send token. Check console for details.");
+    }
   };
 
   /* ----------------------------------------------------------------------------
@@ -336,8 +421,17 @@ function ChatPage() {
           <button
             className="p-2 rounded bg-purple-600 text-white hover:bg-purple-700"
             onClick={() => setShowCharmSelector(true)}
+            title="Send Charm"
           >
-            ✨ Charm
+            ✨
+          </button>
+
+          <button
+            className="p-2 rounded bg-green-600 text-white hover:bg-green-700"
+            onClick={() => setShowTokenSelector(true)}
+            title="Send Tokens"
+          >
+            💸
           </button>
 
           <input
@@ -362,6 +456,13 @@ function ChatPage() {
         <CharmSelector
           onSend={handleSendCharm}
           onClose={() => setShowCharmSelector(false)}
+        />
+      )}
+
+      {showTokenSelector && (
+        <TokenSelector
+          onSend={handleSendToken}
+          onCancel={() => setShowTokenSelector(false)}
         />
       )}
     </div>
