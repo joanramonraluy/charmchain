@@ -1,7 +1,7 @@
 // SideMenu.tsx
 import { useEffect, useRef } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Home, Settings, Info, Users, X } from "lucide-react";
+import { Settings, Info, Users, X, MessageSquare } from "lucide-react";
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -13,7 +13,7 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
   const currentPath = router.location.pathname;
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Tancar el menú al clicar fora (només mòbil)
+  // Close menu when clicking outside (mobile only)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -29,7 +29,7 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
   }, [isOpen, setIsOpen]);
 
   const menuItems = [
-    { to: "/", icon: <Home />, label: "Home" },
+    { to: "/", icon: <MessageSquare />, label: "Chats" },
     { to: "/contacts", icon: <Users />, label: "Contacts" },
     { to: "/settings", icon: <Settings />, label: "Settings" },
     { to: "/info", icon: <Info />, label: "Info" },
@@ -37,28 +37,39 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
 
   return (
     <>
-      {/* Sidebar escriptori */}
-      <div
-        className="hidden md:flex fixed top-20 left-0 h-[calc(100%-5rem)] bg-blue-700 flex-col items-start py-8 px-6 space-y-4 shadow-lg min-w-[180px]"
-      >
-        {menuItems.map((item) => (
-          <MenuItem key={item.to} {...item} active={currentPath === item.to} />
-        ))}
-      </div>
+      {/* Backdrop for mobile */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm transition-opacity"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
 
-      {/* Sidebar mòbil */}
+      {/* Sidebar */}
       <div
         ref={menuRef}
-        className={`fixed top-0 left-0 h-full bg-blue-700 transform ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        } transition-transform duration-300 ease-in-out z-50 shadow-lg w-64 md:hidden`}
+        className={`fixed top-0 left-0 h-full bg-[#1c242f] text-white flex flex-col shadow-2xl z-50 transition-transform duration-300 ease-in-out
+          ${isOpen ? "translate-x-0" : "-translate-x-full"} 
+          md:relative md:translate-x-0 md:w-64 md:shadow-none md:border-r md:border-gray-800 w-72`}
       >
-        <div className="flex justify-end p-4">
-          <button className="text-white" onClick={() => setIsOpen(false)}>
+        {/* Header */}
+        <div className="p-6 flex items-center justify-between border-b border-gray-700">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-lg font-bold">
+              CC
+            </div>
+            <h1 className="text-xl font-bold tracking-tight">CharmChain</h1>
+          </div>
+          <button
+            className="md:hidden text-gray-400 hover:text-white transition-colors"
+            onClick={() => setIsOpen(false)}
+          >
             <X size={24} />
           </button>
         </div>
-        <div className="flex flex-col p-6 mt-4 space-y-6">
+
+        {/* Menu Items */}
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {menuItems.map((item) => (
             <MenuItem
               key={item.to}
@@ -67,6 +78,11 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
               onClick={() => setIsOpen(false)}
             />
           ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="p-4 border-t border-gray-700 text-xs text-gray-500 text-center">
+          v1.0.0 • Minima Network
         </div>
       </div>
     </>
@@ -90,12 +106,15 @@ function MenuItem({
     <Link
       to={to}
       onClick={onClick}
-      className={`flex items-center gap-3 p-2 rounded hover:bg-blue-600 transition ${
-        active ? "bg-blue-600 text-yellow-300" : "text-white"
-      }`}
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${active
+        ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20"
+        : "text-gray-400 hover:bg-gray-800 hover:text-white"
+        }`}
     >
-      <div className="w-6 h-6 flex items-center justify-center">{icon}</div>
-      <span className="text-sm">{label}</span>
+      <div className={`transition-transform duration-200 ${active ? "scale-110" : "group-hover:scale-110"}`}>
+        {icon}
+      </div>
+      <span className="font-medium">{label}</span>
     </Link>
   );
 }

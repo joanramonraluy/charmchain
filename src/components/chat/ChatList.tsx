@@ -43,8 +43,6 @@ export default function ChatList() {
 
         const fetchData = async () => {
             try {
-                console.log("✅ MDS loaded, fetching chats and contacts...");
-
                 // Fetch contacts first
                 const contactsRes: any = await MDS.cmd.maxcontacts();
                 const contactsList: Contact[] = contactsRes?.response?.contacts || [];
@@ -59,9 +57,6 @@ export default function ChatList() {
 
                 // Fetch recent chats
                 const chatsList = await minimaService.getRecentChats();
-
-                console.log("📇 Chats found:", chatsList);
-                console.log("📇 Contacts map:", contactsMap);
 
                 if (isMounted) {
                     setContacts(contactsMap);
@@ -92,16 +87,28 @@ export default function ChatList() {
         };
     }, [loaded]);
 
-    if (!loaded) return <p>⏳ Esperant Minima...</p>;
-    if (loading) return <p>🔄 Carregant xats...</p>;
-    if (error) return <p>⚠️ Error: {error}</p>;
+    if (!loaded || loading) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-white">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-white">
+                <p className="text-red-500">⚠️ {error}</p>
+            </div>
+        );
+    }
 
     const defaultAvatar =
         "data:image/svg+xml;base64," +
         btoa(
             `<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'>
-        <circle cx='24' cy='24' r='24' fill='#ccc'/>
-        <text x='50%' y='55%' text-anchor='middle' font-size='20' fill='white' dy='.3em'>?</text>
+        <rect width='48' height='48' fill='#e0e0e0'/>
+        <text x='50%' y='55%' text-anchor='middle' font-size='24' fill='#ffffff' dy='.3em' font-family='sans-serif'>?</text>
       </svg>`
         );
 
@@ -120,106 +127,155 @@ export default function ChatList() {
 
     const getName = (chat: ChatItem) => {
         const contact = contacts.get(chat.publickey);
-        return contact?.extradata?.name || chat.roomname || "(Sense nom)";
-    };
-
-    const truncateAddress = (addr?: string) => {
-        if (!addr) return "(No address)";
-        if (addr.length <= 12) return addr;
-        return `${addr.slice(0, 7)}...${addr.slice(-5)}`;
+        return contact?.extradata?.name || chat.roomname || "Unknown";
     };
 
     const getLastMessagePreview = (chat: ChatItem) => {
         if (chat.lastMessageType === "charm") {
-            return `✨ Charm (${chat.lastMessageAmount} Minima)`;
+            return `✨ Charm sent`;
         }
         try {
             const decoded = decodeURIComponent(chat.lastMessage);
-            return decoded.length > 40 ? decoded.slice(0, 40) + "..." : decoded;
+            return decoded.length > 50 ? decoded.slice(0, 50) + "..." : decoded;
         } catch {
-            return chat.lastMessage.length > 40 ? chat.lastMessage.slice(0, 40) + "..." : chat.lastMessage;
+            return chat.lastMessage;
         }
     };
 
-    const timeAgo = (timestamp: number) => {
-        if (!timestamp) return "Desconegut";
-        const diff = Date.now() - timestamp;
-        const mins = Math.floor(diff / 60000);
-        if (mins < 1) return "ara mateix";
-        if (mins < 60) return `fa ${mins} min`;
-        const hours = Math.floor(mins / 60);
-        if (hours < 24) return `fa ${hours} h`;
-        const days = Math.floor(hours / 24);
-        return `fa ${days} dies`;
+    const formatTime = (timestamp: number | string) => {
+        if (!timestamp) return "";
+
+        // Ensure timestamp is a number
+        const timeNum = Number(timestamp);
+        if (isNaN(timeNum)) return "";
+
+        const date = new Date(timeNum);
+        const now = new Date();
+        const isToday = date.toDateString() === now.toDateString();
+
+        if (isToday) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Check if yesterday
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        if (date.toDateString() === yesterday.toDateString()) {
+            return "Yesterday";
+        }
+
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
     return (
-        <div className="p-6">
-            <h1 className="text-2xl font-semibold mb-4">Els meus Xats</h1>
-            {chats.length > 0 ? (
-                <ul style={{ listStyle: "none", padding: 0 }}>
-                    {chats.map((chat, i) => (
-                        <li
-                            key={i}
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "space-between",
-                                marginBottom: "0.8rem",
-                                backgroundColor: "#f8f8f8",
-                                padding: "0.6rem 1rem",
-                                borderRadius: "12px",
-                                border: "1px solid #ddd",
-                                cursor: "pointer",
-                            }}
-                            onClick={() =>
-                                navigate({
-                                    to: "/chat/$address",
-                                    params: {
-                                        address: chat.publickey,
-                                    },
-                                })
-                            }
-                        >
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flex: 1 }}>
+        <div className="h-screen flex flex-col bg-white">
+            {/* App Bar / Header */}
+            <div className="bg-[#0088cc] text-white p-4 shadow-md flex items-center justify-between z-10">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('open-sidebar'))}
+                        className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors md:hidden"
+                    >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                    <h1 className="text-xl font-bold">CharmChain</h1>
+                </div>
+                <button
+                    onClick={() => navigate({ to: "/contacts" })}
+                    className="p-2 hover:bg-white/10 rounded-full transition-colors"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                </button>
+            </div>
+
+            {/* Chat List */}
+            <div className="flex-1 overflow-y-auto">
+                {chats.length > 0 ? (
+                    <div className="divide-y divide-gray-100">
+                        {chats.map((chat, i) => (
+                            <div
+                                key={i}
+                                onClick={() =>
+                                    navigate({
+                                        to: "/chat/$address",
+                                        params: {
+                                            address: chat.publickey,
+                                        },
+                                    })
+                                }
+                                className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer transition-colors active:bg-gray-100"
+                            >
+                                {/* Avatar */}
                                 <img
                                     src={getAvatar(chat.publickey)}
                                     alt={getName(chat)}
-                                    style={{
-                                        width: 48,
-                                        height: 48,
-                                        borderRadius: "50%",
-                                        objectFit: "cover",
-                                        border: "1px solid #ddd",
-                                    }}
+                                    className="w-12 h-12 rounded-full object-cover bg-gray-200 flex-shrink-0"
                                     onError={(e: any) => {
                                         e.target.src = defaultAvatar;
                                     }}
                                 />
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <strong>{getName(chat)}</strong>
-                                    <br />
-                                    <small style={{ color: "#555" }}>
-                                        {truncateAddress(chat.publickey)}
-                                    </small>
-                                    <br />
-                                    <small style={{ color: "#777", fontStyle: "italic" }}>
-                                        {getLastMessagePreview(chat)}
-                                    </small>
+
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-baseline mb-1">
+                                        <h3 className="font-semibold text-gray-900 truncate text-[16px]">
+                                            {getName(chat)}
+                                        </h3>
+                                        <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+                                            {formatTime(chat.lastMessageDate)}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center">
+                                        <p className="text-sm text-gray-500 truncate flex-1">
+                                            {chat.username === "Me" && (
+                                                <span className="text-[#0088cc] mr-1">You:</span>
+                                            )}
+                                            {getLastMessagePreview(chat)}
+                                        </p>
+                                        {/* Unread badge placeholder - if we had unread count */}
+                                        {/* <span className="ml-2 bg-[#0088cc] text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[1.25rem] text-center">
+                      2
+                    </span> */}
+                                    </div>
                                 </div>
                             </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-500 p-8 text-center">
+                        <div className="bg-blue-50 p-4 rounded-full mb-4">
+                            <svg className="w-12 h-12 text-[#0088cc]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-1">No chats yet</h3>
+                        <p className="text-sm mb-6">Start a new conversation to see it here.</p>
+                        <button
+                            onClick={() => navigate({ to: "/contacts" })}
+                            className="px-6 py-2 bg-[#0088cc] text-white rounded-full font-medium hover:bg-[#0077b5] transition-colors shadow-sm"
+                        >
+                            Start Messaging
+                        </button>
+                    </div>
+                )}
+            </div>
 
-                            <div style={{ textAlign: "right", marginLeft: "1rem" }}>
-                                <small style={{ color: "#999", fontSize: "0.75rem" }}>
-                                    {timeAgo(chat.lastMessageDate)}
-                                </small>
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-            ) : (
-                <p>📭 No hi ha xats disponibles. Comença una conversa des de Contactes!</p>
-            )}
+            {/* Floating Action Button (FAB) for New Chat - Telegram style */}
+            <div className="fixed bottom-6 right-6">
+                <button
+                    onClick={() => navigate({ to: "/contacts" })}
+                    className="w-14 h-14 bg-[#0088cc] text-white rounded-full shadow-lg flex items-center justify-center hover:bg-[#0077b5] transition-transform hover:scale-105 active:scale-95"
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                </button>
+            </div>
         </div>
     );
 }

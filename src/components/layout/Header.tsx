@@ -18,7 +18,7 @@ interface HeaderProps {
 }
 
 const menuLabels = [
-  { to: "/", label: "Home" },
+  { to: "/", label: "Chats" },
   { to: "/contacts", label: "Contacts" },
   { to: "/settings", label: "Settings" },
   { to: "/info", label: "Info" },
@@ -27,16 +27,12 @@ const menuLabels = [
 export default function Header({ onToggleMenu }: HeaderProps) {
   const { loaded } = useContext(appContext);
   const [userAvatar, setUserAvatar] = useState<string>(defaultAvatar);
-  const [userName, setUserName] = useState<string>("");
 
   const router = useRouterState();
   const currentPath = router.location.pathname;
 
   const currentItem = menuLabels.find((item) => item.to === currentPath);
-  const isChat = currentPath.startsWith("/chat/");
-  const pageTitle = isChat
-    ? "Charm Chat"
-    : currentItem?.label || "Have a nice day";
+  const pageTitle = currentItem?.label || "CharmChain";
 
   useEffect(() => {
     if (!loaded) return;
@@ -48,9 +44,7 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         const info = (res.response as any) || {};
 
         if (isMounted && info) {
-          const name = info.name || "User";
           const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar;
-          setUserName(name);
           setUserAvatar(icon);
         }
       } catch (err) {
@@ -64,49 +58,34 @@ export default function Header({ onToggleMenu }: HeaderProps) {
     };
   }, [loaded]);
 
-
-  const truncateName = (name: string) =>
-    name.length > 8 ? name.slice(0, 8) + "…" : name;
-
   return (
-    <header className="w-full shadow-lg z-40 flex-shrink-0">
-      {/* Header principal */}
-      <div className="flex justify-between items-center bg-blue-600 text-white px-6 py-3">
+    <header className="w-full bg-[#0088cc] text-white shadow-md z-30 flex-shrink-0">
+      <div className="flex justify-between items-center px-4 py-3">
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleMenu}
-            className="p-2 rounded hover:bg-blue-500 transition md:hidden"
+            className="p-2 -ml-2 rounded-full hover:bg-white/10 transition md:hidden"
           >
             <Menu size={24} />
           </button>
 
-          <div className="text-3xl select-none">💖</div>
-          <h1 className="text-lg font-semibold tracking-wide">CharmChain</h1>
+          <h1 className="text-xl font-bold tracking-wide">{pageTitle}</h1>
         </div>
 
         <div className="flex items-center gap-4">
-          <span className="font-medium truncate max-w-[80px] text-right">
-            {truncateName(userName)}
-          </span>
+          <Wifi
+            size={20}
+            className={`${loaded ? "text-green-300" : "text-red-300"} transition-colors`}
+          />
           <img
             src={userAvatar}
             alt="User avatar"
-            className="w-8 h-8 rounded-full border-[3px] border-blue-300 object-cover"
+            className="w-8 h-8 rounded-full border-2 border-white/50 object-cover bg-white/20"
             onError={(e) => {
               (e.target as HTMLImageElement).src = defaultAvatar;
             }}
           />
         </div>
-      </div>
-
-      {/* Subheader */}
-      <div className="bg-blue-100 text-blue-900 px-6 py-1 shadow-inner w-full flex justify-end items-center gap-2">
-        <h2 className="text-lg font-medium">{pageTitle}</h2>
-        <Wifi
-          size={20}
-          className={`${loaded ? "text-green-600" : "text-red-400"
-            } transition-colors`}
-        />
       </div>
     </header>
   );

@@ -15,13 +15,25 @@ interface MessageBubbleProps {
 }
 
 export default function MessageBubble({ fromMe, text, charm, amount, timestamp, status }: MessageBubbleProps) {
-  const alignment = fromMe ? "self-start" : "self-end"; // Sent on Left, Received on Right
   const isCharm = !!charm;
+
+  // WhatsApp Style Colors
+  // Sent: Light Green (#E1FFC7)
+  // Received: White (#FFFFFF)
   const bubbleColor = isCharm
-    ? "bg-purple-300 text-purple-900" // fons lila per charms
+    ? "bg-purple-100 border border-purple-200" // Special style for charms
     : fromMe
-      ? "bg-pink-500 text-white" // Sent (Left)
-      : "bg-blue-200 text-blue-900"; // Received (Right)
+      ? "bg-[#E1FFC7] shadow-sm" // WhatsApp Sent Green
+      : "bg-white shadow-sm"; // WhatsApp Received White
+
+  // Bubble Shape (Tails)
+  // Sent: Rounded but top-right is sharp (or custom radius)
+  // Received: Rounded but top-left is sharp
+  const borderRadius = fromMe
+    ? "rounded-l-lg rounded-br-lg rounded-tr-none"
+    : "rounded-r-lg rounded-bl-lg rounded-tl-none";
+
+  const alignment = fromMe ? "self-end items-end" : "self-start items-start";
 
   // Agafa el JSON corresponent al charm si existeix
   let animationData = null;
@@ -32,74 +44,80 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
   }
 
   return (
-    <div
-      className={`max-w-[75%] my-2 p-3 rounded-2xl shadow ${alignment} ${bubbleColor} flex flex-col items-center`}
-    >
-      {/* Charm */}
-      {isCharm && animationData && (
-        <div className="w-24 h-24 mb-2">
-          <Lottie animationData={animationData} loop={true} />
-        </div>
-      )}
+    <div className={`flex flex-col max-w-[80%] mb-2 ${alignment}`}>
+      <div
+        className={`relative px-3 py-2 ${borderRadius} ${bubbleColor} min-w-[80px]`}
+        style={{ position: 'relative' }}
+      >
+        {/* Tail Pseudo-element simulation using absolute SVG or just CSS borders could be complex. 
+            For simplicity, we stick to the rounded corner trick which is very common. 
+            If we want a real tail, we can add a small SVG. Let's stick to the shape for now.
+        */}
 
-      {/* Text */}
-      {text && <p className="leading-snug whitespace-pre-wrap">{text}</p>}
-
-      {/* Debug: show if no text and no charm */}
-      {!text && !isCharm && <p className="text-xs opacity-50">[Empty message]</p>}
-
-      {/* Quantitat de Minima */}
-      {isCharm && amount != null && (
-        <span className="mt-1 text-sm font-semibold">{amount} MINIMA</span>
-      )}
-
-      {/* Timestamp & Status */}
-      <div className={`flex items-center gap-1 mt-1 self-end ${fromMe ? "text-white/80" : "text-gray-500"}`}>
-        <span className="text-[10px]">
-          {timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
-        </span>
-
-        {fromMe && (
-          <div className="flex items-center gap-0.5">
-            {/* 
-                STATUS LOGIC:
-                - sent: 1 green arrow (→) - message sent via Maxima
-                - delivered: 1 green check (✓) - message received by recipient
-                - read: 2 green checks (✓✓) - message read by recipient
-                - undefined/empty: show arrow as fallback for sent messages
-             */}
-
-            {(status === 'sent' || !status) && (
-              /* Arrow: Message sent via Maxima (or no status yet) */
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                className="text-green-400">
-                <polyline points="9 18 15 12 9 6"></polyline>
-              </svg>
-            )}
-
-            {status === 'delivered' && (
-              /* Single check: Message delivered to recipient */
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                className="text-green-400">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-            )}
-
-            {status === 'read' && (
-              /* Double check: Message read by recipient */
-              <>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                  className="text-green-400">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                  className="text-green-400 -ml-2">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              </>
-            )}
+        {/* Charm */}
+        {isCharm && animationData && (
+          <div className="w-32 h-32 mb-1">
+            <Lottie animationData={animationData} loop={true} />
           </div>
         )}
+
+        {/* Text */}
+        {text && (
+          <p className="text-[15px] leading-relaxed text-gray-800 whitespace-pre-wrap break-words">
+            {text}
+          </p>
+        )}
+
+        {/* Quantitat de Minima */}
+        {isCharm && amount != null && (
+          <div className="mt-1 text-sm font-bold text-purple-700 flex items-center gap-1">
+            <span>💎</span> {amount} MINIMA
+          </div>
+        )}
+
+        {/* Metadata Row (Time + Status) */}
+        <div className="flex items-center justify-end gap-1 mt-1 select-none">
+          <span className="text-[11px] text-gray-500 min-w-fit">
+            {timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+          </span>
+
+          {fromMe && (
+            <div className="flex items-center ml-0.5">
+              {/* Status Icons (Blue ticks for read, Gray for sent/delivered) */}
+
+              {(status === 'sent' || !status) && (
+                /* Single Gray Tick */
+                <svg viewBox="0 0 16 15" width="16" height="15" className="text-gray-500 w-4 h-4">
+                  <path fill="currentColor" d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88 2.186 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
+                </svg>
+              )}
+
+              {status === 'delivered' && (
+                /* Double Gray Tick */
+                <div className="flex -space-x-1">
+                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-gray-500 w-4 h-4">
+                    <path fill="currentColor" d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88 6.286 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
+                  </svg>
+                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-gray-500 w-4 h-4">
+                    <path fill="currentColor" d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88 2.186 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
+                  </svg>
+                </div>
+              )}
+
+              {status === 'read' && (
+                /* Double Blue Tick */
+                <div className="flex -space-x-1">
+                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-blue-500 w-4 h-4">
+                    <path fill="currentColor" d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88 6.286 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
+                  </svg>
+                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-blue-500 w-4 h-4">
+                    <path fill="currentColor" d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88 2.186 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
