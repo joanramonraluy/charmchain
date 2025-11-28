@@ -9,6 +9,13 @@ export default defineConfig({
   base: "",
   build: {
     outDir: "build",
+    rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress eval warnings from lottie-web (safe usage)
+        if (warning.code === 'EVAL' && warning.id?.includes('lottie')) return;
+        warn(warning);
+      }
+    }
   },
   resolve: {
     alias: {

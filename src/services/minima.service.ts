@@ -75,7 +75,7 @@ class MinimaService {
 
         MDS.sql(initsql, (res: any) => {
             if (!res.status) {
-                console.error("❌ [DB] Failed to create table:", res.error);
+                console.error("❌ [DB] Failed to create CHAT_MESSAGES table:", res.error);
             } else {
                 console.log("✅ [DB] CHAT_MESSAGES table initialized");
                 // Add amount column to existing tables if it doesn't exist
@@ -88,6 +88,143 @@ class MinimaService {
                     }
                 });
             }
+        });
+
+        // Create CHAT_STATUS table if not exists
+        const createStatusTable = `
+            CREATE TABLE IF NOT EXISTS CHAT_STATUS (
+                publickey VARCHAR(512) PRIMARY KEY,
+                archived BOOLEAN NOT NULL DEFAULT FALSE,
+                archived_date BIGINT,
+                last_opened BIGINT,
+                app_installed BOOLEAN DEFAULT FALSE
+            )`;
+
+        MDS.sql(createStatusTable, (res: any) => {
+            if (!res.status) {
+                console.error("❌ [DB] Failed to create CHAT_STATUS table:", res.error);
+            } else {
+                console.log("✅ [DB] CHAT_STATUS table initialized");
+                // Add app_installed column if it doesn't exist (migration)
+                const alterSql = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS app_installed BOOLEAN DEFAULT FALSE";
+                MDS.sql(alterSql, (alterRes: any) => {
+                    if (!alterRes.status) {
+                        console.warn("⚠️ [DB] Could not add app_installed column (may already exist):", alterRes.error);
+                    } else {
+                        console.log("✅ [DB] app_installed column added/verified");
+                    }
+                });
+            }
+        });
+    }
+
+    /* ----------------------------------------------------------------------------
+      CHAT STATUS (Archive, Read, App Installed)
+    ---------------------------------------------------------------------------- */
+    archiveChat(publickey: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const sql = `
+                MERGE INTO CHAT_STATUS (publickey, archived, archived_date)
+                KEY (publickey)
+                VALUES ('${publickey}', TRUE, ${Date.now()})
+            `;
+            console.log("📦 [SQL] Archiving chat:", publickey);
+            MDS.sql(sql, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [SQL] Failed to archive chat:", res.error);
+                    reject(new Error(res.error));
+                } else {
+                    console.log("✅ [SQL] Chat archived successfully");
+                    resolve();
+                }
+            });
+        });
+    }
+
+    unarchiveChat(publickey: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const sql = `UPDATE CHAT_STATUS SET archived=FALSE WHERE publickey='${publickey}'`;
+            console.log("📂 [SQL] Unarchiving chat:", publickey);
+            MDS.sql(sql, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [SQL] Failed to unarchive chat:", res.error);
+                    reject(new Error(res.error));
+                } else {
+                    console.log("✅ [SQL] Chat unarchived successfully");
+                    resolve();
+                }
+            });
+        });
+    }
+
+    markChatAsOpened(publickey: string): Promise<void> {
+        return new Promise((resolve) => {
+            const sql = `
+                MERGE INTO CHAT_STATUS (publickey, last_opened)
+                KEY (publickey)
+                VALUES ('${publickey}', ${Date.now()})
+            `;
+            console.log("👁️ [SQL] Marking chat as opened:", publickey);
+            MDS.sql(sql, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [SQL] Failed to mark chat as opened:", res.error);
+                    // Don't reject, just log error to avoid breaking UI flow
+                    resolve();
+                } else {
+                    console.log("✅ [SQL] Chat marked as opened");
+                    resolve();
+                }
+            });
+        });
+    }
+
+    setAppInstalled(publickey: string): Promise<void> {
+        return new Promise((resolve) => {
+            // Use MERGE to update or insert
+            const sql = `
+                MERGE INTO CHAT_STATUS (publickey, app_installed)
+                KEY (publickey)
+                VALUES ('${publickey}', TRUE)
+            `;
+            MDS.sql(sql, (res: any) => {
+                if (res.status) {
+                    console.log("✅ [DB] App installed status saved for", publickey);
+                } else {
+                    console.error("❌ [DB] Failed to save app installed status:", res.error);
+                }
+                resolve();
+            });
+        });
+    }
+
+    isAppInstalled(publickey: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const sql = `SELECT app_installed FROM CHAT_STATUS WHERE publickey='${publickey}'`;
+            MDS.sql(sql, (res: any) => {
+                if (res.status && res.rows && res.rows.length > 0) {
+                    const val = res.rows[0].APP_INSTALLED;
+                    resolve(val === true || val === 'TRUE' || val === 1);
+                } else {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    getChatStatus(publickey: string): Promise<{ archived: boolean; lastOpened: number | null }> {
+        return new Promise((resolve) => {
+            const sql = `SELECT * FROM CHAT_STATUS WHERE publickey='${publickey}'`;
+            MDS.sql(sql, (res: any) => {
+                if (!res.status || !res.rows || res.rows.length === 0) {
+                    resolve({ archived: false, lastOpened: null });
+                    return;
+                }
+                const row = res.rows[0];
+                resolve({
+                    archived: row.ARCHIVED === true || row.ARCHIVED === 1,
+                    lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null
+                });
+            });
         });
     }
 
@@ -125,44 +262,78 @@ class MinimaService {
 
     getRecentChats(): Promise<any[]> {
         return new Promise((resolve) => {
-            // First, get all messages ordered by date
-            const sql = `SELECT * FROM CHAT_MESSAGES ORDER BY date DESC`;
+            // Get all messages with their chat status
+            const sql = `
+                SELECT 
+                    m.*,
+                    s.archived,
+                    s.last_opened
+                FROM CHAT_MESSAGES m
+                LEFT JOIN CHAT_STATUS s ON m.publickey = s.publickey
+                ORDER BY m.date DESC
+            `;
 
-            console.log("💾 [SQL] Executing getRecentChats:", sql);
+            console.log("💾 [SQL] Executing getRecentChats with status");
             MDS.sql(sql, (res: any) => {
-                console.log("💾 [SQL] getRecentChats result:", res);
-                if (!res.status || !res.rows) {
+                // If the query fails (e.g. CHAT_STATUS table doesn't exist yet), fallback to simple query
+                if (!res.status) {
+                    console.warn("⚠️ [SQL] Complex query failed, falling back to simple query:", res.error);
+                    const simpleSql = `SELECT * FROM CHAT_MESSAGES ORDER BY date DESC`;
+                    MDS.sql(simpleSql, (simpleRes: any) => {
+                        if (!simpleRes.status || !simpleRes.rows) {
+                            resolve([]);
+                            return;
+                        }
+                        this.processChatRows(simpleRes.rows, resolve);
+                    });
+                    return;
+                }
+
+                if (!res.rows) {
                     resolve([]);
                     return;
                 }
 
-                // Group by publickey manually and keep only the most recent message
-                const chatMap = new Map<string, any>();
-
-                res.rows.forEach((row: any) => {
-                    const publickey = row.PUBLICKEY;
-
-                    // If we haven't seen this publickey yet, or this message is newer
-                    if (!chatMap.has(publickey)) {
-                        chatMap.set(publickey, {
-                            publickey: row.PUBLICKEY,
-                            roomname: row.ROOMNAME,
-                            lastMessage: row.MESSAGE,
-                            lastMessageType: row.TYPE,
-                            lastMessageDate: row.DATE,
-                            lastMessageAmount: row.AMOUNT,
-                            username: row.USERNAME
-                        });
-                    }
-                });
-
-                // Convert map to array and sort by date
-                const chats = Array.from(chatMap.values()).sort((a, b) => b.lastMessageDate - a.lastMessageDate);
-
-                console.log("💾 [SQL] Processed chats:", chats);
-                resolve(chats);
+                this.processChatRows(res.rows, resolve);
             });
         });
+    }
+
+    private processChatRows(rows: any[], resolve: (value: any[]) => void) {
+        // Group by publickey manually and keep only the most recent message
+        const chatMap = new Map<string, any>();
+
+        rows.forEach((row: any) => {
+            const publickey = row.PUBLICKEY;
+
+            // If we haven't seen this publickey yet, or this message is newer
+            if (!chatMap.has(publickey)) {
+                chatMap.set(publickey, {
+                    publickey: row.PUBLICKEY,
+                    roomname: row.ROOMNAME,
+                    lastMessage: row.MESSAGE,
+                    lastMessageType: row.TYPE,
+                    lastMessageDate: row.DATE,
+                    lastMessageAmount: row.AMOUNT,
+                    username: row.USERNAME,
+                    archived: row.ARCHIVED === true || row.ARCHIVED === 1 || false,
+                    lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null
+                });
+            }
+        });
+
+        // Convert map to array and sort: active chats first, then archived
+        const chats = Array.from(chatMap.values()).sort((a, b) => {
+            // Archived chats go to the bottom
+            if (a.archived !== b.archived) {
+                return a.archived ? 1 : -1;
+            }
+            // Within same category, sort by date
+            return b.lastMessageDate - a.lastMessageDate;
+        });
+
+        console.log("💾 [SQL] Processed chats with status:", chats);
+        resolve(chats);
     }
 
 
@@ -379,6 +550,36 @@ class MinimaService {
 
         } catch (err) {
             console.error("❌ [CharmChain] Error sending delivery receipt:", err);
+        }
+    }
+
+    async sendPing(toPublicKey: string) {
+        console.log("📡 [CharmChain] Sending Ping to", toPublicKey);
+        try {
+            const payload = {
+                message: "",
+                type: "ping",
+                username: "Me",
+                filedata: ""
+            };
+
+            const jsonStr = JSON.stringify(payload);
+            const hexData = "0x" + this.utf8ToHex(jsonStr).toUpperCase();
+
+            await MDS.cmd.maxima({
+                params: {
+                    action: "send",
+                    publickey: toPublicKey,
+                    application: "charmchain",
+                    data: hexData,
+                    poll: false,
+                } as any,
+            });
+
+            console.log("✅ [CharmChain] Ping sent successfully");
+        } catch (err) {
+            console.error("❌ [CharmChain] Error sending ping:", err);
+            throw err;
         }
     }
 

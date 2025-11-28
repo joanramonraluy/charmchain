@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import CharmSelector from "../../components/chat/CharmSelector";
+import { Paperclip } from "lucide-react";
 import MessageBubble from "../../components/chat/MessageBubble";
 import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
@@ -30,7 +31,8 @@ interface ParsedMessage {
   charm: { id: string } | null;
   amount: number | null;
   timestamp?: number;
-  status?: 'sent' | 'delivered' | 'read';
+  status?: 'pending' | 'sent' | 'delivered' | 'read';
+  tokenAmount?: { amount: string; tokenName: string }; // For token transfer messages
 }
 
 function ChatPage() {
@@ -109,23 +111,52 @@ function ChatPage() {
     const fetchMessages = async () => {
       if (!contact) return;
 
+      // Mark chat as opened when we enter it
+      if (contact.publickey) {
+        minimaService.markChatAsOpened(contact.publickey).catch(err =>
+          console.error("[Chat] Failed to mark as opened:", err)
+        );
+      }
+
       try {
-        const rawMessages = await minimaService.getMessages(address);
+        // IMPORTANT: Use contact.publickey to fetch messages, not the address parameter
+        // The address parameter might be currentaddress or minimaaddress, but messages
+        // are always stored with the publickey
+        const rawMessages = await minimaService.getMessages(contact.publickey);
 
         if (!Array.isArray(rawMessages)) return;
 
         const parsedMessages = rawMessages.map((row: any) => {
           // SQL returns column names in UPPERCASE
           const isCharm = row.TYPE === "charm";
+          const isToken = row.TYPE === "token";
           const charmObj = isCharm ? { id: row.MESSAGE } : null;
 
+          // Parse token data if it's a token message
+          let tokenAmount: { amount: string; tokenName: string } | undefined;
+          let displayText: string | null = null;
+
+          if (isToken) {
+            try {
+              const tokenData = JSON.parse(decodeURIComponent(row.MESSAGE || "{}"));
+              tokenAmount = { amount: tokenData.amount, tokenName: tokenData.tokenName };
+              displayText = `I sent you ${tokenData.amount} ${tokenData.tokenName}`;
+            } catch (err) {
+              console.error("[DB] Error parsing token data:", err);
+              displayText = decodeURIComponent(row.MESSAGE || "");
+            }
+          } else if (!isCharm) {
+            displayText = decodeURIComponent(row.MESSAGE || "");
+          }
+
           return {
-            text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
+            text: displayText,
             fromMe: row.USERNAME === "Me",
             charm: charmObj,
             amount: isCharm ? Number(row.AMOUNT || 0) : null,
             timestamp: Number(row.DATE || 0),
             status: (row.STATE as 'sent' | 'delivered' | 'read') || 'sent',
+            tokenAmount,
           };
         });
 
@@ -139,28 +170,93 @@ function ChatPage() {
     fetchMessages();
   }, [address, contact]);
 
+  const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
+
+  const handleCheckStatus = async () => {
+    if (!contact?.publickey) return;
+
+    setAppStatus('checking');
+    try {
+      await minimaService.sendPing(contact.publickey);
+
+      // Set timeout to revert to not_found if no pong received
+      setTimeout(() => {
+        setAppStatus((prev) => prev === 'checking' ? 'not_found' : prev);
+      }, 5000);
+    } catch (err) {
+      console.error("Error sending ping:", err);
+      setAppStatus('unknown');
+    }
+  };
+
   /* ----------------------------------------------------------------------------
       LISTEN FOR INCOMING MESSAGES
   ---------------------------------------------------------------------------- */
   useEffect(() => {
     if (!contact) return;
 
+    // Check if we already know this contact has the app
+    if (contact.publickey) {
+      minimaService.isAppInstalled(contact.publickey).then((isInstalled) => {
+        if (isInstalled) {
+          console.log("🔄 [Chat] Known app user, auto-checking status...");
+          setAppStatus('checking');
+          minimaService.sendPing(contact.publickey!).catch(console.error);
+
+          // Timeout for auto-check
+          setTimeout(() => {
+            setAppStatus((prev) => prev === 'checking' ? 'not_found' : prev);
+          }, 5000);
+        }
+      });
+    }
+
     const handleNewMessage = (payload: any) => {
+      // Handle Pong response
+      if (payload.type === 'pong') {
+        setAppStatus('installed');
+        // Save that this user has the app installed
+        if (contact.publickey) {
+          minimaService.setAppInstalled(contact.publickey);
+        }
+        return;
+      }
+
       // Reload messages from DB to get latest state
-      minimaService.getMessages(address).then((rawMessages) => {
+      // Use contact.publickey to ensure we get the correct messages
+      minimaService.getMessages(contact.publickey).then((rawMessages) => {
         if (!Array.isArray(rawMessages)) return;
 
         const parsedMessages = rawMessages.map((row: any) => {
           const isCharm = row.TYPE === "charm";
+          const isToken = row.TYPE === "token";
           const charmObj = isCharm ? { id: row.MESSAGE } : null;
 
+          // Parse token data if it's a token message
+          let tokenAmount: { amount: string; tokenName: string } | undefined;
+          let displayText: string | null = null;
+
+          if (isToken) {
+            try {
+              const tokenData = JSON.parse(decodeURIComponent(row.MESSAGE || "{}"));
+              tokenAmount = { amount: tokenData.amount, tokenName: tokenData.tokenName };
+              displayText = `I sent you ${tokenData.amount} ${tokenData.tokenName}`;
+            } catch (err) {
+              console.error("[DB] Error parsing token data:", err);
+              displayText = decodeURIComponent(row.MESSAGE || "");
+            }
+          } else if (!isCharm) {
+            displayText = decodeURIComponent(row.MESSAGE || "");
+          }
+
           return {
-            text: isCharm ? null : decodeURIComponent(row.MESSAGE || ""),
+            text: displayText,
             fromMe: row.USERNAME === "Me",
             charm: charmObj,
             amount: isCharm ? Number(row.AMOUNT || 0) : null,
             timestamp: Number(row.DATE || 0),
             status: (row.STATE as 'sent' | 'delivered' | 'read') || 'sent',
+            tokenAmount,
           };
         });
 
@@ -168,7 +264,7 @@ function ChatPage() {
         setMessages(deduplicatedMessages);
 
         // If this is a NEW MESSAGE (not a receipt), send read receipt
-        if (payload.type !== 'read_receipt' && payload.type !== 'delivery_receipt') {
+        if (payload.type !== 'read_receipt' && payload.type !== 'delivery_receipt' && payload.type !== 'ping') {
           if (contact.publickey) {
             minimaService.sendReadReceipt(contact.publickey);
           }
@@ -188,7 +284,7 @@ function ChatPage() {
     return () => {
       minimaService.removeNewMessageCallback(handleNewMessage);
     };
-  }, [address, contact]);
+  }, [contact, address]); // Re-run when contact or address changes
 
   /* ----------------------------------------------------------------------------
       AUTOSCROLL
@@ -238,10 +334,11 @@ function ChatPage() {
     try {
       setShowCharmSelector(false);
 
-      // Optimistic UI update
+      // Optimistic UI update with pending status
+      const tempTimestamp = Date.now();
       setMessages((prev) => [
         ...prev,
-        { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: Date.now(), status: 'sent' }
+        { text: null, fromMe: true, charm: { id: charmId }, amount, timestamp: tempTimestamp, status: 'pending' }
       ]);
 
       await minimaService.sendCharmWithTokens(
@@ -250,6 +347,13 @@ function ChatPage() {
         username,
         charmId,
         amount
+      );
+
+      // Update to sent after successful send
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.timestamp === tempTimestamp ? { ...m, status: 'sent' as const } : m
+        )
       );
     } catch (err) {
       alert("Failed to send charm with tokens. Check console for details.");
@@ -272,16 +376,36 @@ function ChatPage() {
       await minimaService.sendToken(tokenId, amount, contact.extradata.minimaaddress, tokenName);
 
       // 2. Send a chat message confirming the transaction
-      const message = `I sent you ${amount} ${tokenName}`;
+      // Store token info in the message field as JSON
+      const tokenData = JSON.stringify({ amount, tokenName });
       const username = contact?.extradata?.name || "Unknown";
 
-      // Optimistic update
+      // Optimistic update with pending status
+      const tempTimestamp = Date.now();
       setMessages((prev) => [
         ...prev,
-        { text: message, fromMe: true, charm: null, amount: null, timestamp: Date.now(), status: 'sent' }
+        {
+          text: `I sent you ${amount} ${tokenName}`,
+          fromMe: true,
+          charm: null,
+          amount: null,
+          timestamp: tempTimestamp,
+          status: 'pending',
+          tokenAmount: { amount, tokenName }
+        }
       ]);
 
-      await minimaService.sendMessage(contact.publickey, username, message);
+      // Update to sent after successful send
+      setTimeout(() => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.timestamp === tempTimestamp ? { ...m, status: 'sent' as const } : m
+          )
+        );
+      }, 500);
+
+      // Send message with type 'token' and store token data
+      await minimaService.sendMessage(contact.publickey, username, tokenData, 'token');
 
     } catch (err) {
       alert("Failed to send token. Check console for details.");
@@ -315,10 +439,34 @@ function ChatPage() {
           <strong className="text-[16px] truncate font-semibold">
             {contact?.extradata?.name || "Unknown"}
           </strong>
-          <span className="text-xs opacity-80 truncate block">
-            online
-          </span>
+          <div className="flex items-center gap-1">
+            {appStatus === 'installed' ? (
+              <span className="text-xs text-green-200 flex items-center gap-1">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                CharmChain Verified
+              </span>
+            ) : appStatus === 'checking' ? (
+              <span className="text-xs opacity-80">Checking status...</span>
+            ) : appStatus === 'not_found' ? (
+              <span className="text-xs text-red-200">App not detected</span>
+            ) : (
+              <span className="text-xs opacity-80 truncate block">
+                online
+              </span>
+            )}
+          </div>
         </div>
+
+        {/* Check Status Button */}
+        {appStatus !== 'installed' && (
+          <button
+            onClick={handleCheckStatus}
+            disabled={appStatus === 'checking'}
+            className="p-2 text-xs bg-white/20 hover:bg-white/30 rounded-lg transition-colors whitespace-nowrap"
+          >
+            {appStatus === 'checking' ? 'Checking...' : 'Check App'}
+          </button>
+        )}
 
         {/* Header Actions (Placeholder) */}
         <div className="flex gap-4">
@@ -376,6 +524,7 @@ function ChatPage() {
                 amount={msg.amount}
                 timestamp={msg.timestamp}
                 status={msg.status}
+                tokenAmount={msg.tokenAmount}
               />
             </div>
           );
@@ -417,9 +566,7 @@ function ChatPage() {
           onClick={() => setShowAttachments(!showAttachments)}
           title="Attachments"
         >
-          <svg className="w-6 h-6 transform rotate-45" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 0 102.828 2.828l6.414-6.586a4 0 00-5.656-5.656l-6.415 6.585a6 0 108.486 8.486L20.5 13" />
-          </svg>
+          <Paperclip className="w-6 h-6" />
         </button>
 
         <div className="flex-1 bg-white rounded-2xl flex items-center border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent shadow-sm px-4 py-2 mb-1 transition-all">

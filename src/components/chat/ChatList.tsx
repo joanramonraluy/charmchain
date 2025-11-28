@@ -26,6 +26,8 @@ interface ChatItem {
     lastMessageDate: number;
     lastMessageAmount: number;
     username: string;
+    archived?: boolean;
+    lastOpened?: number | null;
 }
 
 export default function ChatList() {
@@ -34,7 +36,17 @@ export default function ChatList() {
     const [contacts, setContacts] = useState<Map<string, Contact>>(new Map());
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [swipedChat, setSwipedChat] = useState<string | null>(null);
     const navigate = useNavigate();
+
+    const fetchChats = async () => {
+        try {
+            const chatsList = await minimaService.getRecentChats();
+            setChats(chatsList);
+        } catch (err: any) {
+            console.error("🚨 Error fetching chats:", err);
+        }
+    };
 
     useEffect(() => {
         if (!loaded) return;
@@ -56,11 +68,10 @@ export default function ChatList() {
                 });
 
                 // Fetch recent chats
-                const chatsList = await minimaService.getRecentChats();
+                await fetchChats();
 
                 if (isMounted) {
                     setContacts(contactsMap);
-                    setChats(chatsList);
                 }
             } catch (err: any) {
                 console.error("🚨 Error fetching chats:", err);
@@ -74,9 +85,7 @@ export default function ChatList() {
 
         // Listen for new messages to refresh the chat list
         const handleNewMessage = () => {
-            minimaService.getRecentChats().then((chatsList) => {
-                if (isMounted) setChats(chatsList);
-            });
+            fetchChats();
         };
 
         minimaService.onNewMessage(handleNewMessage);
@@ -86,6 +95,28 @@ export default function ChatList() {
             minimaService.removeNewMessageCallback(handleNewMessage);
         };
     }, [loaded]);
+
+    const handleArchive = async (publickey: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await minimaService.archiveChat(publickey);
+            await fetchChats();
+            setSwipedChat(null);
+        } catch (err) {
+            console.error("Error archiving chat:", err);
+        }
+    };
+
+    const handleUnarchive = async (publickey: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await minimaService.unarchiveChat(publickey);
+            await fetchChats();
+            setSwipedChat(null);
+        } catch (err) {
+            console.error("Error unarchiving chat:", err);
+        }
+    };
 
     if (!loaded || loading) {
         return (
@@ -134,6 +165,9 @@ export default function ChatList() {
         if (chat.lastMessageType === "charm") {
             return `✨ Charm sent`;
         }
+        if (chat.lastMessageType === "token") {
+            return `💰 Token sent`;
+        }
         try {
             const decoded = decodeURIComponent(chat.lastMessage);
             return decoded.length > 50 ? decoded.slice(0, 50) + "..." : decoded;
@@ -167,16 +201,22 @@ export default function ChatList() {
         return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     };
 
+    const isNewChat = (chat: ChatItem) => {
+        return !chat.lastOpened;
+    };
+
+    // Separate archived and active chats
+    const activeChats = chats.filter(c => !c.archived);
+    const archivedChats = chats.filter(c => c.archived);
+
     return (
         <div className="h-screen flex flex-col bg-gray-50">
-            {/* App Bar / Header */}
-
-
             {/* Chat List */}
             <div className="flex-1 overflow-y-auto p-3">
                 {chats.length > 0 ? (
                     <div className="space-y-2">
-                        {chats.map((chat, i) => (
+                        {/* Active Chats */}
+                        {activeChats.map((chat, i) => (
                             <div
                                 key={i}
                                 onClick={() =>
@@ -187,7 +227,14 @@ export default function ChatList() {
                                         },
                                     })
                                 }
-                                className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 hover:shadow-md cursor-pointer transition-shadow active:bg-gray-50"
+                                className={`relative rounded-lg shadow-sm border p-3 hover:shadow-md cursor-pointer transition-all active:bg-gray-50 ${isNewChat(chat)
+                                        ? 'bg-blue-50 border-l-4 border-blue-500'
+                                        : 'bg-white border-gray-200'
+                                    }`}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setSwipedChat(swipedChat === chat.publickey ? null : chat.publickey);
+                                }}
                             >
                                 <div className="flex items-center gap-3">
                                     {/* Avatar */}
@@ -205,6 +252,9 @@ export default function ChatList() {
                                         <div className="flex items-baseline justify-between gap-2">
                                             <h3 className="font-semibold text-gray-900 truncate">
                                                 {getName(chat)}
+                                                {isNewChat(chat) && (
+                                                    <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">NEW</span>
+                                                )}
                                             </h3>
                                             <span className="text-xs text-gray-500 flex-shrink-0">
                                                 {formatTime(chat.lastMessageDate)}
@@ -217,6 +267,88 @@ export default function ChatList() {
                                             {getLastMessagePreview(chat)}
                                         </p>
                                     </div>
+
+                                    {/* Archive button on right click */}
+                                    {swipedChat === chat.publickey && (
+                                        <button
+                                            onClick={(e) => handleArchive(chat.publickey, e)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors"
+                                        >
+                                            📦 Archive
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+
+                        {/* Separator if there are archived chats */}
+                        {archivedChats.length > 0 && (
+                            <div className="flex items-center gap-2 my-4">
+                                <div className="flex-1 h-px bg-gray-300"></div>
+                                <span className="text-xs text-gray-500 font-medium uppercase">Archived</span>
+                                <div className="flex-1 h-px bg-gray-300"></div>
+                            </div>
+                        )}
+
+                        {/* Archived Chats */}
+                        {archivedChats.map((chat, i) => (
+                            <div
+                                key={`archived-${i}`}
+                                onClick={() =>
+                                    navigate({
+                                        to: "/chat/$address",
+                                        params: {
+                                            address: chat.publickey,
+                                        },
+                                    })
+                                }
+                                className="relative bg-gray-100 opacity-75 rounded-lg shadow-sm border border-l-4 border-gray-400 p-3 hover:opacity-90 cursor-pointer transition-all"
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    setSwipedChat(swipedChat === chat.publickey ? null : chat.publickey);
+                                }}
+                            >
+                                <div className="flex items-center gap-3">
+                                    {/* Archive Icon */}
+                                    <div className="text-2xl flex-shrink-0">📦</div>
+
+                                    {/* Avatar */}
+                                    <img
+                                        src={getAvatar(chat.publickey)}
+                                        alt={getName(chat)}
+                                        className="w-12 h-12 rounded-full object-cover bg-gray-200 flex-shrink-0"
+                                        onError={(e: any) => {
+                                            e.target.src = defaultAvatar;
+                                        }}
+                                    />
+
+                                    {/* Chat Info */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-baseline justify-between gap-2">
+                                            <h3 className="font-semibold text-gray-700 truncate">
+                                                {getName(chat)}
+                                            </h3>
+                                            <span className="text-xs text-gray-500 flex-shrink-0">
+                                                {formatTime(chat.lastMessageDate)}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm text-gray-500 truncate mt-0.5">
+                                            {chat.username === "Me" && (
+                                                <span className="text-gray-600 mr-1">You:</span>
+                                            )}
+                                            {getLastMessagePreview(chat)}
+                                        </p>
+                                    </div>
+
+                                    {/* Unarchive button on right click */}
+                                    {swipedChat === chat.publickey && (
+                                        <button
+                                            onClick={(e) => handleUnarchive(chat.publickey, e)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                                        >
+                                            📂 Unarchive
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}

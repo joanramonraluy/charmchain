@@ -1,24 +1,36 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Player } from "@lottiefiles/react-lottie-player";
-
-// Llista temporal de charms amb Lottie JSON
-import starAnim from "./animations/star.json";
-import heartAnim from "./animations/heart.json";
-import fireAnim from "./animations/fire.json";
+import Lottie from "lottie-react";
 
 interface Charm {
   id: string;
   label: string;
   name: string;
-  animation: any;
+  animationData: any; // Lottie JSON data
 }
 
-const charms: Charm[] = [
-  { id: "star", label: "⭐", name: "Star", animation: starAnim },
-  { id: "heart", label: "❤️", name: "Heart", animation: heartAnim },
-  { id: "fire", label: "🔥", name: "Fire", animation: fireAnim }
-];
+// Dynamic import of all .json files in src/assets/animations
+const charmModules = import.meta.glob('../../assets/animations/*.json', { eager: true });
+
+const charms: Charm[] = Object.keys(charmModules).map((path) => {
+  const fileName = path.split('/').pop() || '';
+  const id = fileName.replace('.json', '');
+  // Generate a readable name from the filename (e.g., "super_star" -> "Super Star")
+  const name = id.split(/[_-]/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+  // Assign a default label based on keywords in the filename
+  let label = "✨";
+  if (id.includes("star")) label = "⭐";
+  else if (id.includes("heart")) label = "❤️";
+  else if (id.includes("fire")) label = "🔥";
+
+  return {
+    id,
+    label,
+    name,
+    animationData: (charmModules[path] as any).default
+  };
+});
 
 const presetAmounts = [1, 5, 10, 20];
 
@@ -40,7 +52,7 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
     onSend({
       charmId: selectedCharm.id,
       charmLabel: selectedCharm.label,
-      charmAnimation: selectedCharm.animation,
+      charmAnimation: selectedCharm.animationData, // Passing JSON data
       amount
     });
     onClose();
@@ -69,19 +81,16 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
               {charms.map((c) => (
                 <button
                   key={c.id}
-                  className={`p - 3 rounded - lg border transition - all ${selectedCharm === c
-                      ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 border-2"
-                      : "border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className={`p-3 rounded-lg border transition-all ${selectedCharm === c
+                    ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 border-2"
+                    : "border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
                     } `}
                   onClick={() => setSelectedCharm(c)}
                   title={c.name}
                 >
-                  <Player
-                    autoplay
-                    loop
-                    src={c.animation}
-                    style={{ height: 60, width: 60 }}
-                  />
+                  <div className="h-[60px] w-[60px] flex items-center justify-center">
+                    <Lottie animationData={c.animationData} loop={true} />
+                  </div>
                 </button>
               ))}
             </div>
@@ -94,9 +103,9 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
               {presetAmounts.map((amt) => (
                 <button
                   key={amt}
-                  className={`px - 4 py - 2 rounded - md border transition - all font - medium ${selectedAmount === amt
-                      ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
-                      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className={`px-4 py-2 rounded-md border transition-all font-medium ${selectedAmount === amt
+                    ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
+                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                     } `}
                   onClick={() => setSelectedAmount(amt)}
                 >
@@ -104,9 +113,9 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
                 </button>
               ))}
               <button
-                className={`px - 4 py - 2 rounded - md border transition - all font - medium ${selectedAmount === "custom"
-                    ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
-                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                className={`px-4 py-2 rounded-md border transition-all font-medium ${selectedAmount === "custom"
+                  ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
+                  : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
                   } `}
                 onClick={() => setSelectedAmount("custom")}
               >
@@ -135,9 +144,9 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
             <button
               onClick={handleSend}
               disabled={!selectedCharm || !selectedAmount}
-              className={`px - 4 py - 2 rounded - md transition - colors font - medium ${selectedCharm && selectedAmount
-                  ? "bg-purple-600 hover:bg-purple-700 text-white"
-                  : "bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+              className={`px-4 py-2 rounded-md transition-colors font-medium ${selectedCharm && selectedAmount
+                ? "bg-purple-600 hover:bg-purple-700 text-white"
+                : "bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
                 } `}
             >
               Send

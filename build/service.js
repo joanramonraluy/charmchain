@@ -53,6 +53,18 @@ MDS.init(function (msg) {
             MDS.sql(alterSql, function (alterRes) {
                 MDS.log("[ServiceWorker] Amount column added/verified: " + JSON.stringify(alterRes));
             });
+
+            // Create CHAT_STATUS table for managing archived chats and last opened time
+            var chatStatusSql = "CREATE TABLE IF NOT EXISTS CHAT_STATUS ( "
+                + "  publickey VARCHAR(512) PRIMARY KEY, "
+                + "  archived BOOLEAN NOT NULL DEFAULT FALSE, "
+                + "  archived_date BIGINT, "
+                + "  last_opened BIGINT "
+                + " )";
+
+            MDS.sql(chatStatusSql, function (statusRes) {
+                MDS.log("[ServiceWorker] CHAT_STATUS table initialized: " + JSON.stringify(statusRes));
+            });
         });
 
         // Only interested in Maxima
@@ -91,6 +103,36 @@ MDS.init(function (msg) {
                     MDS.log("[ServiceWorker] Delivery receipt received from " + pubkey);
                     var sql = "UPDATE CHAT_MESSAGES SET state='delivered' WHERE publickey='" + pubkey + "' AND username='Me' AND state!='read'";
                     MDS.sql(sql);
+                    return;
+                }
+
+                // Handle Ping (App Detection)
+                if (maxjson.type === "ping") {
+                    MDS.log("[ServiceWorker] Ping received from " + pubkey);
+
+                    // Send Pong response
+                    var payload = {
+                        message: "",
+                        type: "pong",
+                        username: "Me",
+                        filedata: ""
+                    };
+
+                    var jsonStr = JSON.stringify(payload);
+                    var hexData = "0x" + utf8ToHex(jsonStr).toUpperCase();
+
+                    MDS.cmd("maxima action:send publickey:" + pubkey + " application:charmchain data:" + hexData + " poll:false", function (res) {
+                        MDS.log("[ServiceWorker] Pong sent to " + pubkey);
+                    });
+                    return;
+                }
+
+                // Handle Pong (App Detection Response)
+                if (maxjson.type === "pong") {
+                    MDS.log("[ServiceWorker] Pong received from " + pubkey);
+                    // We can store this in the DB or just let the UI handle it via events
+                    // For persistence, we could update the contact status in a new table, but for now let's just log it
+                    // The UI will receive this event via minimaService.processEvent
                     return;
                 }
 

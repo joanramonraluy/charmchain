@@ -1,4 +1,4 @@
-# ✨ Charmchain — Decentralized Compliments on Minima  
+# ✨ ChatCharm — Decentralized Compliments on Minima  
 
 **Charmchain** is a decentralized social DApp built on the **Minima blockchain**.  
 It allows users to send **short anonymous compliments** — called *charms* — to others nearby, fully **peer-to-peer**, **private**, and **rewarded**.  
