@@ -172,43 +172,22 @@ function ChatPage() {
 
   const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
 
-  const handleCheckStatus = async () => {
-    if (!contact?.publickey) return;
-
-    setAppStatus('checking');
-    try {
-      await minimaService.sendPing(contact.publickey);
-
-      // Set timeout to revert to not_found if no pong received
-      setTimeout(() => {
-        setAppStatus((prev) => prev === 'checking' ? 'not_found' : prev);
-      }, 5000);
-    } catch (err) {
-      console.error("Error sending ping:", err);
-      setAppStatus('unknown');
-    }
-  };
-
   /* ----------------------------------------------------------------------------
       LISTEN FOR INCOMING MESSAGES
   ---------------------------------------------------------------------------- */
   useEffect(() => {
     if (!contact) return;
 
-    // Check if we already know this contact has the app
+    // Always check app status when entering chat
     if (contact.publickey) {
-      minimaService.isAppInstalled(contact.publickey).then((isInstalled) => {
-        if (isInstalled) {
-          console.log("🔄 [Chat] Known app user, auto-checking status...");
-          setAppStatus('checking');
-          minimaService.sendPing(contact.publickey!).catch(console.error);
+      console.log("🔄 [Chat] Auto-checking app status...");
+      setAppStatus('checking');
+      minimaService.sendPing(contact.publickey).catch(console.error);
 
-          // Timeout for auto-check
-          setTimeout(() => {
-            setAppStatus((prev) => prev === 'checking' ? 'not_found' : prev);
-          }, 5000);
-        }
-      });
+      // Timeout for auto-check
+      setTimeout(() => {
+        setAppStatus((prev) => prev === 'checking' ? 'not_found' : prev);
+      }, 5000);
     }
 
     const handleNewMessage = (payload: any) => {
@@ -456,17 +435,6 @@ function ChatPage() {
             )}
           </div>
         </div>
-
-        {/* Check Status Button */}
-        {appStatus !== 'installed' && (
-          <button
-            onClick={handleCheckStatus}
-            disabled={appStatus === 'checking'}
-            className="p-2 text-xs bg-white/20 hover:bg-white/30 rounded-lg transition-colors whitespace-nowrap"
-          >
-            {appStatus === 'checking' ? 'Checking...' : 'Check App'}
-          </button>
-        )}
 
         {/* Header Actions (Placeholder) */}
         <div className="flex gap-4">
