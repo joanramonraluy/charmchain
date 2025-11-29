@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as InfoRouteImport } from './routes/info'
+import { Route as DiscoveryRouteImport } from './routes/discovery'
 import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatAddressRouteImport } from './routes/chat/$address'
@@ -23,6 +24,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const InfoRoute = InfoRouteImport.update({
   id: '/info',
   path: '/info',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DiscoveryRoute = DiscoveryRouteImport.update({
+  id: '/discovery',
+  path: '/discovery',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactsRoute = ContactsRouteImport.update({
@@ -44,6 +50,7 @@ const ChatAddressRoute = ChatAddressRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
+  '/discovery': typeof DiscoveryRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
   '/chat/$address': typeof ChatAddressRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
+  '/discovery': typeof DiscoveryRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
   '/chat/$address': typeof ChatAddressRoute
@@ -59,21 +67,42 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
+  '/discovery': typeof DiscoveryRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
   '/chat/$address': typeof ChatAddressRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/contacts' | '/info' | '/settings' | '/chat/$address'
+  fullPaths:
+    | '/'
+    | '/contacts'
+    | '/discovery'
+    | '/info'
+    | '/settings'
+    | '/chat/$address'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/contacts' | '/info' | '/settings' | '/chat/$address'
-  id: '__root__' | '/' | '/contacts' | '/info' | '/settings' | '/chat/$address'
+  to:
+    | '/'
+    | '/contacts'
+    | '/discovery'
+    | '/info'
+    | '/settings'
+    | '/chat/$address'
+  id:
+    | '__root__'
+    | '/'
+    | '/contacts'
+    | '/discovery'
+    | '/info'
+    | '/settings'
+    | '/chat/$address'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ContactsRoute: typeof ContactsRoute
+  DiscoveryRoute: typeof DiscoveryRoute
   InfoRoute: typeof InfoRoute
   SettingsRoute: typeof SettingsRoute
   ChatAddressRoute: typeof ChatAddressRoute
@@ -93,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/info'
       fullPath: '/info'
       preLoaderRoute: typeof InfoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/discovery': {
+      id: '/discovery'
+      path: '/discovery'
+      fullPath: '/discovery'
+      preLoaderRoute: typeof DiscoveryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contacts': {
@@ -122,6 +158,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ContactsRoute: ContactsRoute,
+  DiscoveryRoute: DiscoveryRoute,
   InfoRoute: InfoRoute,
   SettingsRoute: SettingsRoute,
   ChatAddressRoute: ChatAddressRoute,

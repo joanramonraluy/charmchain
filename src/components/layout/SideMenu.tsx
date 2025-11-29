@@ -1,7 +1,7 @@
 // SideMenu.tsx
 import { useEffect, useRef, useContext, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Settings, Info, Users, X, MessageSquare } from "lucide-react";
+import { Settings, Info, Users, X, MessageSquare, Globe } from "lucide-react";
 import { appContext } from "../../AppContext";
 import { MDS } from "@minima-global/mds";
 
@@ -71,6 +71,7 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
   const menuItems = [
     { to: "/", icon: <MessageSquare />, label: "Chats" },
     { to: "/contacts", icon: <Users />, label: "Contacts" },
+    { to: "/discovery", icon: <Globe />, label: "Community" },
     { to: "/settings", icon: <Settings />, label: "Settings" },
     { to: "/info", icon: <Info />, label: "Info" },
   ];
