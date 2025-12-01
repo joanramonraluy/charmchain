@@ -121,14 +121,15 @@ class MinimaService {
         const createTransactionsTable = `
             CREATE TABLE IF NOT EXISTS TRANSACTIONS (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                txpowid VARCHAR(256) NOT NULL UNIQUE,
+                txpowid VARCHAR(256) UNIQUE,
                 type VARCHAR(32) NOT NULL,
                 publickey VARCHAR(512) NOT NULL,
                 message_timestamp BIGINT NOT NULL,
                 status VARCHAR(32) NOT NULL,
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
-                metadata TEXT
+                metadata TEXT,
+                pendinguid VARCHAR(128)
             )`;
 
         MDS.sql(createTransactionsTable, (res: any) => {
@@ -136,6 +137,27 @@ class MinimaService {
                 console.error("❌ [DB] Failed to create TRANSACTIONS table:", res.error);
             } else {
                 console.log("✅ [DB] TRANSACTIONS table initialized");
+
+                // Migration 1: Add pendinguid column if it doesn't exist
+                const alterSql1 = "ALTER TABLE TRANSACTIONS ADD COLUMN IF NOT EXISTS pendinguid VARCHAR(128)";
+                MDS.sql(alterSql1, (alterRes: any) => {
+                    if (!alterRes.status) {
+                        console.warn("⚠️ [DB] Could not add pendinguid column (may already exist):", alterRes.error);
+                    } else {
+                        console.log("✅ [DB] pendinguid column added/verified");
+                    }
+                });
+
+                // Migration 2: Allow NULL for txpowid (for pending commands)
+                // H2 syntax: ALTER TABLE tableName ALTER COLUMN columnName SET NULL
+                const alterSql2 = "ALTER TABLE TRANSACTIONS ALTER COLUMN txpowid SET NULL";
+                MDS.sql(alterSql2, (alterRes: any) => {
+                    if (!alterRes.status) {
+                        console.warn("⚠️ [DB] Could not alter txpowid to allow NULL:", alterRes.error);
+                    } else {
+                        console.log("✅ [DB] txpowid column altered to allow NULL");
+                    }
+                });
             }
         });
     }
@@ -577,18 +599,28 @@ class MinimaService {
        TRANSACTION TRACKING
     ---------------------------------------------------------------------------- */
     async insertTransaction(
-        txpowid: string,
+        txpowid: string | null,
         type: 'charm' | 'token',
         publickey: string,
         messageTimestamp: number,
-        metadata: any = {}
+        metadata: any = {},
+        pendinguid: string | null = null
     ): Promise<void> {
         const now = Date.now();
         const metadataStr = JSON.stringify(metadata).replace(/'/g, "''"); // Escape single quotes
 
+        // We need at least txpowid OR pendinguid
+        if (!txpowid && !pendinguid) {
+            console.error("❌ [TX] Cannot insert transaction without txpowid or pendinguid");
+            return;
+        }
+
+        const txpowidVal = txpowid ? `'${txpowid}'` : 'NULL';
+        const pendinguidVal = pendinguid ? `'${pendinguid}'` : 'NULL';
+
         const sql = `
-            INSERT INTO TRANSACTIONS (txpowid, type, publickey, message_timestamp, status, created_at, updated_at, metadata)
-            VALUES ('${txpowid}', '${type}', '${publickey}', ${messageTimestamp}, 'pending', ${now}, ${now}, '${metadataStr}')
+            INSERT INTO TRANSACTIONS (txpowid, type, publickey, message_timestamp, status, created_at, updated_at, metadata, pendinguid)
+            VALUES (${txpowidVal}, '${type}', '${publickey}', ${messageTimestamp}, 'pending', ${now}, ${now}, '${metadataStr}', ${pendinguidVal})
         `;
 
         console.log(`💾 [TX] Inserting transaction: ${txpowid} (${type})`);
@@ -646,6 +678,8 @@ class MinimaService {
     }
 
     async checkTransactionStatus(txpowid: string): Promise<'pending' | 'confirmed' | 'rejected' | 'unknown'> {
+        if (!txpowid || txpowid === 'null' || txpowid === 'undefined') return 'unknown';
+
         try {
             // Try to find the transaction using txpow command
             const response: any = await new Promise((resolve) => {
@@ -669,10 +703,35 @@ class MinimaService {
             }
 
             // Transaction not found - could be rejected or too old
+            // However, we shouldn't be too hasty to call it 'unknown' or 'rejected' if it's just not found yet
+            // But for now, 'unknown' is the safest fallback
             return 'unknown';
         } catch (err) {
             console.error(`❌ [TX] Error checking transaction status for ${txpowid}:`, err);
             return 'unknown';
+        }
+    }
+
+    async updateTransactionTxpowid(pendinguid: string, txpowid: string): Promise<void> {
+        const sql = `UPDATE TRANSACTIONS SET txpowid='${txpowid}' WHERE pendinguid='${pendinguid}'`;
+        try {
+            await this.runSQL(sql);
+            console.log(`✅ [TX] Updated txpowid for pendinguid ${pendinguid} to ${txpowid}`);
+        } catch (err) {
+            console.error(`❌ [TX] Failed to update txpowid:`, err);
+            throw err;
+        }
+    }
+
+    async updateTransactionStatusByPendingUid(pendinguid: string, status: 'pending' | 'confirmed' | 'rejected'): Promise<void> {
+        const now = Date.now();
+        const sql = `UPDATE TRANSACTIONS SET status='${status}', updated_at=${now} WHERE pendinguid='${pendinguid}'`;
+        try {
+            await this.runSQL(sql);
+            console.log(`✅ [TX] Updated status for pendinguid ${pendinguid} to ${status}`);
+        } catch (err) {
+            console.error(`❌ [TX] Failed to update status by pendinguid:`, err);
+            throw err;
         }
     }
 
@@ -813,8 +872,9 @@ class MinimaService {
             // Step 1: Send the Minima tokens (tokenId 0x00 is always Minima)
             const tokenResponse = await this.sendToken("0x00", amount.toString(), minimaAddress, "Minima", stateId);
 
-            // Extract txpowid from token response
+            // Extract txpowid and pendinguid from token response
             const txpowid = tokenResponse?.txpowid;
+            const pendinguid = tokenResponse?.pendinguid;
 
             // Check if token send is pending
             const isTokenPending = tokenResponse && (tokenResponse.pending || (tokenResponse.error && tokenResponse.error.toString().toLowerCase().includes("pending")));
@@ -837,19 +897,22 @@ class MinimaService {
                     date: messageTimestamp
                 });
 
-                // Store transaction in TRANSACTIONS table if we have a txpowid
-                if (txpowid) {
+                // Store transaction in TRANSACTIONS table if we have a txpowid OR pendinguid
+                if (txpowid || pendinguid) {
                     await this.insertTransaction(
                         txpowid,
                         'charm',
                         toPublicKey,
                         messageTimestamp,
-                        { charmId, amount, username }
+                        { charmId, amount, username, minimaAddress },
+                        pendinguid
                     );
-                    console.log(`💾 [CHARM] Transaction tracked: ${txpowid}`);
+                    console.log(`💾 [CHARM] Transaction tracked: ${txpowid || 'No TXPOWID'} (PendingUID: ${pendinguid || 'None'})`);
+                } else {
+                    console.warn(`⚠️ [CHARM] Could not track transaction: No txpowid AND no pendinguid`);
                 }
 
-                return { pending: true, pendinguid: tokenResponse.pendinguid, response: tokenResponse, txpowid };
+                return { pending: true, pendinguid, response: tokenResponse, txpowid };
             }
 
             // Step 2: Only send the charm message via Maxima if token was sent successfully
@@ -906,10 +969,19 @@ class MinimaService {
                 else if (response.response && response.response.body && response.response.body.txn && response.response.body.txn.txpowid) txpowid = response.response.body.txn.txpowid;
             }
 
+            // Extract pendinguid if available
+            let pendinguid = null;
+            if (response) {
+                if (response.pendinguid) pendinguid = response.pendinguid;
+                else if (response.response && response.response.pendinguid) pendinguid = response.response.pendinguid;
+            }
+
             if (txpowid) {
                 console.log(`🆔 [TOKEN SEND] Transaction ID captured: ${txpowid}`);
+            } else if (pendinguid) {
+                console.log(`⏳ [TOKEN SEND] Pending UID captured: ${pendinguid}`);
             } else {
-                console.warn(`⚠️ [TOKEN SEND] No txpowid found in response`);
+                console.warn(`⚠️ [TOKEN SEND] No txpowid or pendinguid found in response`);
             }
 
             if (response && response.status === false) {
@@ -921,10 +993,11 @@ class MinimaService {
                     console.warn("⚠️ [TOKEN SEND] Command is pending approval (Read Mode).");
                     console.log("🔍 [DEBUG] Full Pending Response Structure:", JSON.stringify(response, null, 2));
 
-                    // Return response with txpowid so caller knows it "succeeded" (queued) and can track it
+                    // Return response with txpowid/pendinguid so caller knows it "succeeded" (queued) and can track it
                     return {
                         ...response,
-                        txpowid
+                        txpowid,
+                        pendinguid
                     };
                 } else {
                     console.error(`❌[TOKEN SEND] Send command failed!`);
@@ -935,10 +1008,11 @@ class MinimaService {
 
             console.log(`✅[TOKEN SEND] ========== TOKEN SENT SUCCESSFULLY ==========`);
 
-            // Return response with txpowid included
+            // Return response with txpowid/pendinguid included
             return {
                 ...response,
-                txpowid
+                txpowid,
+                pendinguid
             };
         } catch (err) {
             console.error(`❌[TOKEN SEND] ========== TOKEN SEND FAILED ==========`);
