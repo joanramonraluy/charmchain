@@ -13,7 +13,7 @@ interface MessageBubbleProps {
   charm: { id: string } | null;
   amount: number | null;
   timestamp?: number;
-  status?: 'pending' | 'sent' | 'delivered' | 'read';
+  status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'zombie';
   tokenAmount?: { amount: string; tokenName: string };
 }
 
@@ -89,11 +89,13 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
 
   // Enhanced colors with gradients for token transfers
   const bubbleColor = isCharm
-    ? "bg-gradient-to-br from-purple-100 to-purple-50 border-2 border-purple-300 shadow-lg"
+    ? "bg-gradient-to-br from-indigo-100 to-blue-50 border-2 border-indigo-200 shadow-lg"
     : isTokenTransfer
-      ? "bg-gradient-to-br from-emerald-100 via-green-50 to-teal-50 border-2 border-emerald-300 shadow-lg"
+      ? "bg-gradient-to-br from-cyan-100 via-sky-50 to-blue-50 border-2 border-cyan-300 shadow-lg"
       : fromMe
-        ? "bg-[#E1FFC7] shadow-sm"
+        ? status === 'failed'
+          ? "bg-red-50 border border-red-100 shadow-sm"
+          : "bg-blue-50 shadow-sm"
         : "bg-white shadow-sm";
 
   const borderRadius = fromMe
@@ -181,10 +183,10 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
               💰
             </motion.span>
             <div>
-              <div className="text-xl font-bold bg-gradient-to-r from-emerald-700 to-teal-600 bg-clip-text text-transparent">
+              <div className="text-xl font-bold bg-gradient-to-r from-cyan-700 to-blue-600 bg-clip-text text-transparent">
                 {tokenAmount.amount} {tokenAmount.tokenName}
               </div>
-              <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wide flex items-center gap-1">
+              <div className="text-xs font-semibold text-cyan-600 uppercase tracking-wide flex items-center gap-1">
                 <motion.span
                   animate={status === 'pending' ? { opacity: [1, 0.5, 1] } : {}}
                   transition={{ duration: 1, repeat: Infinity }}
@@ -216,85 +218,53 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
           </p>
         )}
 
-        {/* Quantitat de Minima with charm */}
-        {isCharm && amount != null && (
-          <motion.div
-            initial={{ scale: 0.8, y: 10 }}
-            animate={{ scale: 1, y: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 15, delay: 0.1 }}
-            className="mt-2 text-base font-bold bg-gradient-to-r from-purple-700 to-purple-500 bg-clip-text text-transparent flex items-center gap-1.5"
-          >
-            <motion.span
-              animate={{ rotate: [0, -10, 10, -10, 0] }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-            >
-              💎
-            </motion.span>
-            {amount} MINIMA
-          </motion.div>
+        {/* Charm content */}
+        {isCharm && (
+          <div className="mt-2">
+            {amount != null && (
+              <motion.div
+                initial={{ scale: 0.8, y: 10 }}
+                animate={{ scale: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 15, delay: 0.1 }}
+                className="text-base font-bold bg-gradient-to-r from-indigo-700 to-blue-600 bg-clip-text text-transparent flex items-center gap-1.5"
+              >
+                <motion.span
+                  animate={{ rotate: [0, -10, 10, -10, 0] }}
+                  transition={{ duration: 0.5, delay: 0.2 }}
+                >
+                  💎
+                </motion.span>
+                {amount} MINIMA
+              </motion.div>
+            )}
+          </div>
         )}
 
-        {/* Metadata Row (Time + Status) */}
-        <div className="flex items-center justify-end gap-1 mt-1 select-none">
-          <span className="text-[11px] text-gray-500 min-w-fit">
-            {timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ""}
+        {/* Status indicator */}
+        <div className={`text-xs mt-1 text-right flex items-center justify-end gap-1 ${fromMe ? (status === 'failed' ? 'text-red-500' : 'text-gray-600') : 'text-gray-400'
+          }`}>
+          {status === 'pending' && (
+            <span className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-[10px] font-medium">
+              <span className="animate-spin">⏳</span> Waiting Approval
+            </span>
+          )}
+
+          {(isCharm || isTokenTransfer) && (status === 'sent' || status === 'delivered' || status === 'read') && (
+            <span className="flex items-center gap-1 bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
+              <span>✓</span> Transaction Confirmed
+            </span>
+          )}
+
+          <span>
+            {new Date(timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-
           {fromMe && (
-            <div className="flex items-center ml-0.5">
-              {/* Status Icons */}
-
-              {status === 'pending' && (
-                /* Pending - Enhanced Spinner */
-                <motion.svg
-                  className="w-4 h-4 text-gray-400"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                >
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </motion.svg>
-              )}
-
-              {(status === 'sent' || !status) && (
-                /* Single Gray Tick */
-                <motion.svg
-                  viewBox="0 0 16 15"
-                  width="16"
-                  height="15"
-                  className="text-gray-500 w-4 h-4"
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                >
-                  <path fill="currentColor" d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88 2.186 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
-                </motion.svg>
-              )}
-
-              {status === 'delivered' && (
-                <div className="flex -space-x-1">
-                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-gray-500 w-4 h-4">
-                    <path fill="currentColor" d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88 6.286 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
-                  </svg>
-                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-gray-500 w-4 h-4">
-                    <path fill="currentColor" d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88 2.186 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
-                  </svg>
-                </div>
-              )}
-
-              {status === 'read' && (
-                <div className="flex -space-x-1">
-                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-blue-500 w-4 h-4">
-                    <path fill="currentColor" d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.88 6.286 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
-                  </svg>
-                  <svg viewBox="0 0 16 15" width="16" height="15" className="text-blue-500 w-4 h-4">
-                    <path fill="currentColor" d="M10.91 3.316l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.88 2.186 7.7a.365.365 0 0 0-.51.063l-.478.372a.365.365 0 0 0 .063.51l3.52 3.225a.365.365 0 0 0 .51-.063l6.55-7.98a.365.365 0 0 0-.063-.51z" />
-                  </svg>
-                </div>
-              )}
-            </div>
+            <span>
+              {status === 'sent' && '✓'}
+              {status === 'delivered' && '✓✓'}
+              {status === 'read' && <span className="text-blue-300">✓✓</span>}
+              {status === 'failed' && '❌'}
+            </span>
           )}
         </div>
       </div>

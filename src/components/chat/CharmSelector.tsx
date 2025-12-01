@@ -61,29 +61,37 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+        className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
       >
         <motion.div
-          className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-96 max-w-full mx-4"
+          className="bg-gray-800 rounded-xl shadow-xl w-96 max-w-full p-6"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
         >
-          <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-white">Send a Charm</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-white">Send a Charm</h3>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-200 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
 
           {/* Charm selector */}
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Select Charm</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Select Charm</label>
             <div className="grid grid-cols-3 gap-3">
               {charms.map((c) => (
                 <button
                   key={c.id}
                   className={`p-3 rounded-lg border transition-all ${selectedCharm === c
-                    ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 border-2"
-                    : "border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    ? "bg-purple-900/50 border-purple-500 border-2"
+                    : "border-gray-600 bg-gray-700 hover:bg-gray-600"
                     } `}
                   onClick={() => setSelectedCharm(c)}
                   title={c.name}
@@ -98,14 +106,14 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
 
           {/* Amount selector */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Minima Amount</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Minima Amount</label>
             <div className="flex flex-wrap gap-2 mb-3">
               {presetAmounts.map((amt) => (
                 <button
                   key={amt}
                   className={`px-4 py-2 rounded-md border transition-all font-medium ${selectedAmount === amt
-                    ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
-                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    ? "bg-purple-900/50 border-purple-500 text-purple-300"
+                    : "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
                     } `}
                   onClick={() => setSelectedAmount(amt)}
                 >
@@ -114,8 +122,8 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
               ))}
               <button
                 className={`px-4 py-2 rounded-md border transition-all font-medium ${selectedAmount === "custom"
-                  ? "bg-purple-50 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300"
-                  : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                  ? "bg-purple-900/50 border-purple-500 text-purple-300"
+                  : "border-gray-600 bg-gray-700 text-gray-300 hover:bg-gray-600"
                   } `}
                 onClick={() => setSelectedAmount("custom")}
               >
@@ -125,7 +133,7 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
             {selectedAmount === "custom" && (
               <input
                 type="number"
-                className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-gray-400 outline-none"
                 value={customAmount}
                 min={1}
                 placeholder="Enter amount"
@@ -134,22 +142,22 @@ export default function CharmSelector({ onSend, onClose }: CharmSelectorProps) {
             )}
           </div>
 
-          <div className="flex justify-end space-x-3">
+          <div className="flex gap-3 pt-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+              className="flex-1 px-4 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleSend}
               disabled={!selectedCharm || !selectedAmount}
-              className={`px-4 py-2 rounded-md transition-colors font-medium ${selectedCharm && selectedAmount
+              className={`flex-1 px-4 py-2 rounded-lg transition-colors font-medium ${selectedCharm && selectedAmount
                 ? "bg-purple-600 hover:bg-purple-700 text-white"
-                : "bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
+                : "bg-gray-700 text-gray-500 cursor-not-allowed border border-gray-600"
                 } `}
             >
-              Send
+              Send Charm
             </button>
           </div>
         </motion.div>

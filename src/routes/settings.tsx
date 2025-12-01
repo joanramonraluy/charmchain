@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useContext, useEffect, useState } from "react";
 import { MDS } from "@minima-global/mds";
 import { appContext } from "../AppContext";
-import { User, ChevronDown, ChevronUp, Copy, Check, Edit2, Globe, Palette } from "lucide-react";
+import { User, ChevronDown, ChevronUp, Copy, Check, Edit2, Globe, Palette, Shield, AlertTriangle, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   component: Settings,
@@ -18,7 +18,7 @@ const defaultAvatar =
   );
 
 function Settings() {
-  const { loaded } = useContext(appContext);
+  const { loaded, updateUserProfile, writeMode } = useContext(appContext);
 
 
   // Profile State
@@ -33,6 +33,9 @@ function Settings() {
   const [showAvatarDialog, setShowAvatarDialog] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarFileSize, setAvatarFileSize] = useState(0);
+  const [userDescription, setUserDescription] = useState("");
+  const [editDescriptionValue, setEditDescriptionValue] = useState("");
+  const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
 
   useEffect(() => {
     if (!loaded) return;
@@ -45,7 +48,15 @@ function Settings() {
 
         if (info) {
           setUserName(info.name || "User");
-          if (info.icon) setUserAvatar(decodeURIComponent(info.icon));
+          if (info.icon) {
+            const decodedIcon = decodeURIComponent(info.icon);
+            // Check if it's a valid data URL, and not a URL ending in /0x00 (no photo)
+            if (decodedIcon.startsWith("data:image") && !decodedIcon.includes("/0x00")) {
+              setUserAvatar(decodedIcon);
+            } else {
+              setUserAvatar(defaultAvatar);
+            }
+          }
           setMaximaAddress(info.contact || "");
         }
 
@@ -61,7 +72,16 @@ function Settings() {
     };
 
     fetchProfile();
+    fetchProfile();
+
+    // Load description from local storage
+    const savedDescription = localStorage.getItem("userDescription");
+    if (savedDescription) {
+      setUserDescription(savedDescription);
+    }
   }, [loaded]);
+
+
 
   const handleEditName = async () => {
     console.log("[Settings] Opening edit dialog");
@@ -91,6 +111,8 @@ function Settings() {
 
         console.log("[Settings] Name set successfully, updating state");
         setUserName(editNameValue.trim());
+        // Update global context to sync with Header and SideMenu
+        updateUserProfile(editNameValue.trim(), userAvatar);
         setShowEditDialog(false);
       } catch (err) {
         console.error("[Settings] Error setting name:", err);
@@ -173,6 +195,8 @@ function Settings() {
 
         console.log("[Settings] Avatar set successfully, updating state");
         setUserAvatar(avatarUrl.trim());
+        // Update global context to sync with Header and SideMenu
+        updateUserProfile(userName, avatarUrl.trim());
         setShowAvatarDialog(false);
       } catch (err) {
         console.error("[Settings] Error setting avatar:", err);
@@ -285,6 +309,8 @@ function Settings() {
         </div>
       )}
 
+
+
       <div className="max-w-4xl mx-auto p-4 md:p-8 bg-gray-50 min-h-screen">
 
         <div className="grid gap-6">
@@ -296,95 +322,189 @@ function Settings() {
               <h2 className="text-xl font-semibold text-gray-800">Profile</h2>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* User Info */}
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <img
-                    src={userAvatar}
-                    alt="Avatar"
-                    className="w-16 h-16 rounded-full object-cover border-4 border-gray-100"
-                    onError={(e) => (e.target as HTMLImageElement).src = defaultAvatar}
+            {/* User Info - Full Width */}
+            <div className="p-6 border-b border-gray-100 flex items-center gap-4">
+              <div className="relative">
+                <img
+                  src={userAvatar}
+                  alt="Avatar"
+                  className="w-16 h-16 rounded-full object-cover border-4 border-gray-100"
+                  onError={(e) => (e.target as HTMLImageElement).src = defaultAvatar}
+                />
+                <button
+                  onClick={handleEditAvatar}
+                  className="absolute -bottom-1 -right-1 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors shadow-lg"
+                  title="Change Avatar"
+                >
+                  <Edit2 size={12} />
+                </button>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-gray-900">{userName}</h3>
+                  <button
+                    onClick={() => {
+                      console.log("[Settings] Edit button clicked");
+                      handleEditName();
+                    }}
+                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                    title="Edit Name"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                </div>
+                <p className="text-sm text-gray-500">Visible to your contacts</p>
+              </div>
+            </div>
+
+            {/* Description Section - Full Width */}
+            <div className="border-b border-gray-100">
+              <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
+                <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">About</h3>
+              </div>
+
+              <div className="relative group">
+                {showDescriptionDialog ? (
+                  <textarea
+                    value={editDescriptionValue}
+                    onChange={(e) => setEditDescriptionValue(e.target.value)}
+                    onBlur={() => {
+                      // Auto-save on blur
+                      const newDescription = editDescriptionValue.trim();
+                      setUserDescription(newDescription);
+                      localStorage.setItem("userDescription", newDescription);
+                      setShowDescriptionDialog(false);
+                    }}
+                    className="w-full p-6 border-none focus:ring-0 resize-none min-h-[100px] text-gray-700 bg-white"
+                    placeholder="Tell us about yourself..."
+                    autoFocus
                   />
-                  <button
-                    onClick={handleEditAvatar}
-                    className="absolute -bottom-1 -right-1 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors shadow-lg"
-                    title="Change Avatar"
+                ) : (
+                  <div
+                    onClick={() => {
+                      setEditDescriptionValue(userDescription);
+                      setShowDescriptionDialog(true);
+                    }}
+                    className="p-6 cursor-pointer hover:bg-gray-50 transition-colors min-h-[100px]"
                   >
-                    <Edit2 size={12} />
-                  </button>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-bold text-gray-900">{userName}</h3>
-                    <button
-                      onClick={() => {
-                        console.log("[Settings] Edit button clicked");
-                        handleEditName();
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                      title="Edit Name"
-                    >
-                      <Edit2 size={16} />
-                    </button>
+                    {userDescription ? (
+                      <p className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed">{userDescription}</p>
+                    ) : (
+                      <p className="text-gray-400 text-sm italic">Add a description about yourself...</p>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-500">Visible to your contacts</p>
+                )}
+              </div>
+            </div>
+
+            {/* Maxima Address - Full Width */}
+            <div className="border-b border-gray-100">
+              <button
+                onClick={() => toggleAddress('maxima')}
+                className="w-full flex items-center justify-between p-6 hover:bg-gray-50 transition-colors text-left"
+              >
+                <span className="font-medium text-gray-700">My Maxima Address</span>
+                {expandedAddress === 'maxima' ? <ChevronUp size={20} className="text-gray-500" /> : <ChevronDown size={20} className="text-gray-500" />}
+              </button>
+
+              {expandedAddress === 'maxima' && (
+                <div className="px-6 pb-6 pt-0">
+                  <p className="text-xs font-mono text-gray-600 break-all mb-3 bg-gray-50 p-3 rounded border border-gray-100">
+                    {maximaAddress || "Loading..."}
+                  </p>
+                  <button
+                    onClick={() => copyToClipboard(maximaAddress, 'maxima')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'maxima' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                  >
+                    {copiedField === 'maxima' ? <Check size={16} /> : <Copy size={16} />}
+                    {copiedField === 'maxima' ? 'Copied!' : 'Copy Address'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Minima Address - Full Width */}
+            <div>
+              <button
+                onClick={() => toggleAddress('minima')}
+                className="w-full flex items-center justify-between p-6 hover:bg-gray-50 transition-colors text-left"
+              >
+                <span className="font-medium text-gray-700">My Minima Address</span>
+                {expandedAddress === 'minima' ? <ChevronUp size={20} className="text-gray-500" /> : <ChevronDown size={20} className="text-gray-500" />}
+              </button>
+
+              {expandedAddress === 'minima' && (
+                <div className="px-6 pb-6 pt-0">
+                  <p className="text-xs font-mono text-gray-600 break-all mb-3 bg-gray-50 p-3 rounded border border-gray-100">
+                    {minimaAddress || "Loading..."}
+                  </p>
+                  <button
+                    onClick={() => copyToClipboard(minimaAddress, 'minima')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'minima' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                  >
+                    {copiedField === 'minima' ? <Check size={16} /> : <Copy size={16} />}
+                    {copiedField === 'minima' ? 'Copied!' : 'Copy Address'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* APPLICATION MODE SECTION */}
+          <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex items-center gap-3">
+              <Shield className={writeMode ? "text-green-500" : "text-yellow-500"} />
+              <h2 className="text-xl font-semibold text-gray-800">Application Mode</h2>
+            </div>
+            <div className="p-6">
+              <div className={`flex items-center gap-3 p-4 rounded-xl mb-4 ${writeMode ? 'bg-green-50 border border-green-100' : 'bg-yellow-50 border border-yellow-100'}`}>
+                {writeMode ? (
+                  <div className="p-2 bg-green-100 rounded-full text-green-600">
+                    <Check size={20} />
+                  </div>
+                ) : (
+                  <div className="p-2 bg-yellow-100 rounded-full text-yellow-600">
+                    <AlertTriangle size={20} />
+                  </div>
+                )}
+                <div>
+                  <h3 className={`font-semibold ${writeMode ? 'text-green-800' : 'text-yellow-800'}`}>
+                    {writeMode ? 'Write Mode Active' : 'Read Mode Active'}
+                  </h3>
+                  <p className={`text-sm ${writeMode ? 'text-green-600' : 'text-yellow-600'}`}>
+                    {writeMode
+                      ? 'CharmChain has full permission to send messages and tokens.'
+                      : 'CharmChain needs your approval for every transaction.'}
+                  </p>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {/* Maxima Address */}
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
+              {!writeMode && (
+                <div className="space-y-4">
+                  <p className="text-gray-600 text-sm leading-relaxed">
+                    To enable <strong>Write Mode</strong> and avoid repeated approval requests:
+                  </p>
+                  <ol className="list-decimal list-inside text-sm text-gray-600 space-y-2 pl-2">
+                    <li>Go to <strong>Minima</strong> main screen</li>
+                    <li>Open <strong>MiniDapps</strong></li>
+                    <li>Find <strong>CharmChain</strong></li>
+                    <li>Click the <strong>lock icon</strong> / permissions</li>
+                    <li>Select <strong>Write Mode</strong></li>
+                  </ol>
+
                   <button
-                    onClick={() => toggleAddress('maxima')}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+                    onClick={() => {
+                      // Attempt a dummy write to trigger permission prompt if supported, 
+                      // or just reload to check if user changed it.
+                      window.location.reload();
+                    }}
+                    className="w-full mt-2 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                   >
-                    <span className="font-medium text-gray-700">My Maxima Address</span>
-                    {expandedAddress === 'maxima' ? <ChevronUp size={20} className="text-gray-500" /> : <ChevronDown size={20} className="text-gray-500" />}
+                    <RefreshCw size={18} />
+                    Check Permissions Again
                   </button>
-
-                  {expandedAddress === 'maxima' && (
-                    <div className="p-4 bg-white border-t border-gray-200">
-                      <p className="text-xs font-mono text-gray-600 break-all mb-3 bg-gray-50 p-3 rounded border border-gray-100">
-                        {maximaAddress || "Loading..."}
-                      </p>
-                      <button
-                        onClick={() => copyToClipboard(maximaAddress, 'maxima')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'maxima' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-                      >
-                        {copiedField === 'maxima' ? <Check size={16} /> : <Copy size={16} />}
-                        {copiedField === 'maxima' ? 'Copied!' : 'Copy Address'}
-                      </button>
-                    </div>
-                  )}
                 </div>
-
-                {/* Minima Address */}
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <button
-                    onClick={() => toggleAddress('minima')}
-                    className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
-                  >
-                    <span className="font-medium text-gray-700">My Minima Address</span>
-                    {expandedAddress === 'minima' ? <ChevronUp size={20} className="text-gray-500" /> : <ChevronDown size={20} className="text-gray-500" />}
-                  </button>
-
-                  {expandedAddress === 'minima' && (
-                    <div className="p-4 bg-white border-t border-gray-200">
-                      <p className="text-xs font-mono text-gray-600 break-all mb-3 bg-gray-50 p-3 rounded border border-gray-100">
-                        {minimaAddress || "Loading..."}
-                      </p>
-                      <button
-                        onClick={() => copyToClipboard(minimaAddress, 'minima')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'minima' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-                      >
-                        {copiedField === 'minima' ? <Check size={16} /> : <Copy size={16} />}
-                        {copiedField === 'minima' ? 'Copied!' : 'Copy Address'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+              )}
             </div>
           </section>
 
@@ -410,8 +530,8 @@ function Settings() {
             </div>
           </section>
 
-        </div>
-      </div>
+        </div >
+      </div >
     </>
   );
 }

@@ -1,9 +1,8 @@
 // SideMenu.tsx
-import { useEffect, useRef, useContext, useState } from "react";
+import { useEffect, useRef, useContext } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Settings, Info, Users, X, MessageSquare, Globe } from "lucide-react";
 import { appContext } from "../../AppContext";
-import { MDS } from "@minima-global/mds";
 
 const defaultAvatar =
   "data:image/svg+xml;base64," +
@@ -20,38 +19,10 @@ interface SideMenuProps {
 }
 
 export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
-  const { loaded } = useContext(appContext);
+  const { userName, userAvatar } = useContext(appContext);
   const router = useRouterState();
   const currentPath = router.location.pathname;
   const menuRef = useRef<HTMLDivElement>(null);
-  const [userName, setUserName] = useState<string>("User");
-  const [userAvatar, setUserAvatar] = useState<string>(defaultAvatar);
-
-  useEffect(() => {
-    if (!loaded) return;
-    let isMounted = true;
-
-    const fetchUser = async () => {
-      try {
-        const res = await MDS.cmd.maxima({ params: { action: "info" } });
-        const info = (res.response as any) || {};
-
-        if (isMounted && info) {
-          const name = info.name || "User";
-          const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar;
-          setUserName(name);
-          setUserAvatar(icon);
-        }
-      } catch (err) {
-        console.error("Error fetching user info:", err);
-      }
-    };
-
-    fetchUser();
-    return () => {
-      isMounted = false;
-    };
-  }, [loaded]);
 
   // Close menu when clicking outside (mobile only)
   useEffect(() => {

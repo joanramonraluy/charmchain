@@ -116,6 +116,28 @@ class MinimaService {
                 });
             }
         });
+
+        // Create TRANSACTIONS table for tracking transaction status
+        const createTransactionsTable = `
+            CREATE TABLE IF NOT EXISTS TRANSACTIONS (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                txpowid VARCHAR(256) NOT NULL UNIQUE,
+                type VARCHAR(32) NOT NULL,
+                publickey VARCHAR(512) NOT NULL,
+                message_timestamp BIGINT NOT NULL,
+                status VARCHAR(32) NOT NULL,
+                created_at BIGINT NOT NULL,
+                updated_at BIGINT NOT NULL,
+                metadata TEXT
+            )`;
+
+        MDS.sql(createTransactionsTable, (res: any) => {
+            if (!res.status) {
+                console.error("❌ [DB] Failed to create TRANSACTIONS table:", res.error);
+            } else {
+                console.log("✅ [DB] TRANSACTIONS table initialized");
+            }
+        });
     }
 
     /* ----------------------------------------------------------------------------
@@ -228,17 +250,21 @@ class MinimaService {
         });
     }
 
-    insertMessage(msg: ChatMessage) {
-        const { roomname, publickey, username, type, message, filedata = "", state = "", amount = 0 } = msg;
+    async insertMessage(msg: ChatMessage & { date?: number }) {
+        const { roomname, publickey, username, type, message, filedata = "", state = "", amount = 0, date } = msg;
         const encodedMsg = encodeURIComponent(message).replace(/'/g, "%27");
+        const timestamp = date || Date.now();
         const sql = `
       INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,state,amount,date)
-      VALUES ('${roomname}','${publickey}','${username}','${type}','${encodedMsg}','${filedata}','${state}',${amount},${Date.now()})
+      VALUES ('${roomname}','${publickey}','${username}','${type}','${encodedMsg}','${filedata}','${state}',${amount},${timestamp})
     `;
         console.log("💾 [SQL] Executing INSERT:", sql);
-        MDS.sql(sql, (res: any) => {
-            console.log("💾 [SQL] INSERT result:", res);
-        });
+        try {
+            await this.runSQL(sql);
+            console.log("💾 [SQL] INSERT successful");
+        } catch (err) {
+            console.error("❌ [SQL] INSERT failed:", err);
+        }
     }
 
     getMessages(publickey: string): Promise<ChatMessage[]> {
@@ -246,7 +272,7 @@ class MinimaService {
             const sql = `
         SELECT * FROM CHAT_MESSAGES
         WHERE publickey='${publickey}'
-        ORDER BY id ASC
+        ORDER BY date ASC
       `;
             console.log("💾 [SQL] Executing SELECT:", sql);
             MDS.sql(sql, (res: any) => {
@@ -428,7 +454,8 @@ class MinimaService {
         message: string,
         type: string = "text",
         filedata: string = "",
-        amount: number = 0
+        amount: number = 0,
+        existingTimestamp?: number  // If provided, we're updating an existing pending message
     ) {
         try {
             // Create payload with message data only (application is specified in Maxima params)
@@ -463,26 +490,200 @@ class MinimaService {
 
             console.log("📡 [MDS] Full Maxima send response:", response);
 
-            if (response && (response as any).status === false) {
+            // Check if it's a pending command (Read Mode)
+            const isPending = response && ((response as any).status === false) && (
+                (response as any).pending ||
+                ((response as any).error && (response as any).error.toString().toLowerCase().includes("pending"))
+            );
+
+            if (response && (response as any).status === false && !isPending) {
                 console.error("❌ [MDS] Maxima send failed:", (response as any).error || response);
                 throw new Error((response as any).error || "Maxima send failed");
             }
 
-            console.log("✅ [CharmChain] Message sent successfully");
+            if (isPending) {
+                console.warn("⚠️ [MDS] Command is pending approval (Read Mode). Saving with 'pending' state.");
+            } else {
+                console.log("✅ [CharmChain] Message sent successfully");
+            }
 
-            this.insertMessage({
-                roomname: username,
-                publickey: toPublicKey,
-                username: "Me", // Set to "Me" so we know it's sent by us
-                type,
-                message,
-                filedata,
-                state: "sent", // Initial state
-                amount, // Include amount for charm messages
-            });
+            // Only insert a new message if we're not updating an existing one
+            if (!existingTimestamp) {
+                this.insertMessage({
+                    roomname: username,
+                    publickey: toPublicKey,
+                    username: "Me", // Set to "Me" so we know it's sent by us
+                    type,
+                    message,
+                    filedata,
+                    state: isPending ? "pending" : "sent", // Use 'pending' if command is pending
+                    amount, // Include amount for charm messages
+                });
+            } else {
+                console.log(`ℹ️ [CharmChain] Skipping message insertion - updating existing message with timestamp ${existingTimestamp}`);
+            }
+
+            return response;
         } catch (err) {
             console.error("❌ [CharmChain] Error enviant missatge:", err);
             throw err;
+        }
+    }
+
+    async updateMessageState(publickey: string, timestamp: number, state: string, newTimestamp?: number) {
+        console.log(`🔄 [updateMessageState] CALLED: publickey=${publickey.substring(0, 10)}..., timestamp=${timestamp}, newState="${state}", newTimestamp=${newTimestamp}`);
+        console.trace('Stack trace for updateMessageState');
+
+        let setClause = `state='${state}'`;
+        if (newTimestamp) {
+            setClause += `, date='${newTimestamp}'`;
+        }
+
+        const sql = `
+            UPDATE CHAT_MESSAGES
+            SET ${setClause}
+            WHERE publickey='${publickey}' AND date='${timestamp}'
+        `;
+
+        console.log(`💾 [SQL] Updating message state to '${state}'${newTimestamp ? ` and date to ${newTimestamp}` : ''} for timestamp ${timestamp}`);
+
+        try {
+            const result = await this.runSQL(sql);
+            console.log(`✅[SQL] Message state updated: `, result);
+            return result;
+        } catch (err) {
+            console.error("❌ [SQL] Error updating message state:", err);
+            throw err;
+        }
+    }
+
+    /* ----------------------------------------------------------------------------
+       SQL HELPER (Promise wrapper)
+    ---------------------------------------------------------------------------- */
+    runSQL(sql: string): Promise<any> {
+        return new Promise((resolve, reject) => {
+            MDS.sql(sql, (res: any) => {
+                if (res.status) {
+                    resolve(res);
+                } else {
+                    console.error(`❌ [SQL Error] ${sql} ->`, res.error);
+                    reject(res.error);
+                }
+            });
+        });
+    }
+
+    /* ----------------------------------------------------------------------------
+       TRANSACTION TRACKING
+    ---------------------------------------------------------------------------- */
+    async insertTransaction(
+        txpowid: string,
+        type: 'charm' | 'token',
+        publickey: string,
+        messageTimestamp: number,
+        metadata: any = {}
+    ): Promise<void> {
+        const now = Date.now();
+        const metadataStr = JSON.stringify(metadata).replace(/'/g, "''"); // Escape single quotes
+
+        const sql = `
+            INSERT INTO TRANSACTIONS (txpowid, type, publickey, message_timestamp, status, created_at, updated_at, metadata)
+            VALUES ('${txpowid}', '${type}', '${publickey}', ${messageTimestamp}, 'pending', ${now}, ${now}, '${metadataStr}')
+        `;
+
+        console.log(`💾 [TX] Inserting transaction: ${txpowid} (${type})`);
+
+        try {
+            await this.runSQL(sql);
+            console.log(`✅ [TX] Transaction inserted: ${txpowid}`);
+        } catch (err) {
+            console.error(`❌ [TX] Failed to insert transaction:`, err);
+            throw err;
+        }
+    }
+
+    async updateTransactionStatus(txpowid: string, status: 'pending' | 'confirmed' | 'rejected'): Promise<void> {
+        const now = Date.now();
+        const sql = `
+            UPDATE TRANSACTIONS
+            SET status='${status}', updated_at=${now}
+            WHERE txpowid='${txpowid}'
+        `;
+
+        console.log(`🔄 [TX] Updating transaction ${txpowid} to ${status}`);
+
+        try {
+            await this.runSQL(sql);
+            console.log(`✅ [TX] Transaction status updated: ${txpowid} -> ${status}`);
+        } catch (err) {
+            console.error(`❌ [TX] Failed to update transaction status:`, err);
+            throw err;
+        }
+    }
+
+    async getPendingTransactions(): Promise<any[]> {
+        const sql = `SELECT * FROM TRANSACTIONS WHERE status='pending' ORDER BY created_at ASC`;
+
+        try {
+            const res = await this.runSQL(sql);
+            return res.rows || [];
+        } catch (err) {
+            console.error(`❌ [TX] Failed to get pending transactions:`, err);
+            return [];
+        }
+    }
+
+    async getTransactionByMessageTimestamp(timestamp: number): Promise<any | null> {
+        const sql = `SELECT * FROM TRANSACTIONS WHERE message_timestamp=${timestamp}`;
+
+        try {
+            const res = await this.runSQL(sql);
+            return res.rows && res.rows.length > 0 ? res.rows[0] : null;
+        } catch (err) {
+            console.error(`❌ [TX] Failed to get transaction by timestamp:`, err);
+            return null;
+        }
+    }
+
+    async checkTransactionStatus(txpowid: string): Promise<'pending' | 'confirmed' | 'rejected' | 'unknown'> {
+        try {
+            // Try to find the transaction using txpow command
+            const response: any = await new Promise((resolve) => {
+                MDS.executeRaw(`txpow txpowid:${txpowid}`, (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (response && response.status) {
+                const txpow = response.response;
+
+                // If we got a response, the transaction exists
+                if (txpow) {
+                    // Check if it's in a block (confirmed)
+                    if (txpow.isblock || txpow.inblock) {
+                        return 'confirmed';
+                    }
+                    // Transaction exists but not yet in a block
+                    return 'pending';
+                }
+            }
+
+            // Transaction not found - could be rejected or too old
+            return 'unknown';
+        } catch (err) {
+            console.error(`❌ [TX] Error checking transaction status for ${txpowid}:`, err);
+            return 'unknown';
+        }
+    }
+
+    async getPendingMessages(publickey: string) {
+        const sql = `SELECT * FROM CHAT_MESSAGES WHERE publickey='${publickey}' AND state='pending'`;
+        try {
+            const res = await this.runSQL(sql);
+            return res.rows;
+        } catch (err) {
+            console.error("❌ [CharmChain] Error fetching pending messages:", err);
+            return [];
         }
     }
 
@@ -512,7 +713,8 @@ class MinimaService {
             console.log("✅ [CharmChain] Read receipt sent successfully");
 
             // Mark received messages as read locally
-            const sql = `UPDATE CHAT_MESSAGES SET state='read' WHERE publickey='${toPublicKey}' AND username!='Me' AND state!='read'`;
+            // IMPORTANT: Exclude 'pending' messages - they haven't been sent yet!
+            const sql = `UPDATE CHAT_MESSAGES SET state = 'read' WHERE publickey = '${toPublicKey}' AND username != 'Me' AND state != 'read' AND state != 'pending'`;
             MDS.sql(sql, (res: any) => {
                 console.log("✅ [DB] Marked received messages as read locally:", res);
             });
@@ -596,76 +798,155 @@ class MinimaService {
         }
     }
 
+
     async sendCharmWithTokens(
         toPublicKey: string,
         minimaAddress: string,
         username: string,
         charmId: string,
-        amount: number
-    ): Promise<void> {
-        console.log(`🎯 [CHARM] ========== STARTING CHARM SEND WITH TOKENS ==========`);
-        console.log(`🎯 [CHARM] Charm ID: ${charmId}`);
-        console.log(`🎯 [CHARM] Amount: ${amount} Minima`);
-        console.log(`🎯 [CHARM] To PublicKey: ${toPublicKey}`);
-        console.log(`🎯 [CHARM] To Minima Address: ${minimaAddress}`);
-        console.log(`🎯 [CHARM] Username: ${username}`);
+        amount: number,
+        stateId?: number
+    ): Promise<{ pending: boolean; pendinguid?: string; response?: any; txpowid?: string }> {
+        console.log(`🎯[CHARM] Sending charm ${charmId} with ${amount} Minima to ${username}`);
 
         try {
             // Step 1: Send the Minima tokens (tokenId 0x00 is always Minima)
-            console.log(`🎯 [CHARM] Step 1/2: Sending ${amount} Minima tokens...`);
-            await this.sendToken("0x00", amount.toString(), minimaAddress, "Minima");
-            console.log(`✅ [CHARM] Tokens sent successfully`);
+            const tokenResponse = await this.sendToken("0x00", amount.toString(), minimaAddress, "Minima", stateId);
 
-            // Step 2: Send the charm message
-            console.log(`🎯 [CHARM] Step 2/2: Sending charm message...`);
-            await this.sendMessage(toPublicKey, username, charmId, "charm", "", amount);
-            console.log(`✅ [CHARM] Charm message sent successfully`);
+            // Extract txpowid from token response
+            const txpowid = tokenResponse?.txpowid;
 
-            console.log(`✅ [CHARM] ========== CHARM SEND COMPLETE ==========`);
+            // Check if token send is pending
+            const isTokenPending = tokenResponse && (tokenResponse.pending || (tokenResponse.error && tokenResponse.error.toString().toLowerCase().includes("pending")));
+
+            if (isTokenPending) {
+                console.log(`⚠️[CHARM] Token send is pending. Saving message locally but NOT sending via Maxima yet.`);
+
+                const messageTimestamp = stateId || Date.now();
+
+                // Save message locally with 'pending' state, but don't send via Maxima
+                await this.insertMessage({
+                    roomname: username,
+                    publickey: toPublicKey,
+                    username: "Me",
+                    type: "charm",
+                    message: charmId,
+                    filedata: "",
+                    state: "pending",
+                    amount,
+                    date: messageTimestamp
+                });
+
+                // Store transaction in TRANSACTIONS table if we have a txpowid
+                if (txpowid) {
+                    await this.insertTransaction(
+                        txpowid,
+                        'charm',
+                        toPublicKey,
+                        messageTimestamp,
+                        { charmId, amount, username }
+                    );
+                    console.log(`💾 [CHARM] Transaction tracked: ${txpowid}`);
+                }
+
+                return { pending: true, pendinguid: tokenResponse.pendinguid, response: tokenResponse, txpowid };
+            }
+
+            // Step 2: Only send the charm message via Maxima if token was sent successfully
+            console.log(`✅[CHARM] Token sent successfully. Now sending charm message via Maxima...`);
+            const msgResponse = await this.sendMessage(toPublicKey, username, charmId, "charm", "", amount);
+
+            console.log(`✅[CHARM] ========== CHARM SENT SUCCESSFULLY ==========`);
+            return { pending: false, response: msgResponse, txpowid };
+
         } catch (err) {
-            console.error(`❌ [CHARM] ========== CHARM SEND FAILED ==========`);
-            console.error(`❌ [CHARM] Error details:`, err);
+            console.error(`❌[CHARM] ========== CHARM SEND FAILED ==========`);
+            console.error(`❌[CHARM] Error details:`, err);
             throw err;
         }
     }
 
-    async sendToken(tokenId: string, amount: string, address: string, tokenName: string): Promise<any> {
-        console.log(`💸 [TOKEN SEND] ========== STARTING TOKEN SEND ==========`);
-        console.log(`💸 [TOKEN SEND] Token Name: ${tokenName}`);
-        console.log(`💸 [TOKEN SEND] Token ID: ${tokenId}`);
-        console.log(`💸 [TOKEN SEND] Amount: ${amount}`);
-        console.log(`💸 [TOKEN SEND] Destination Address: ${address}`);
+    async sendToken(tokenId: string, amount: string, address: string, tokenName: string, stateId?: number): Promise<any> {
+        console.log(`💸[TOKEN SEND] Sending ${amount} ${tokenName} to ${address}`);
 
         try {
             // Construct the send command parameters
-            const sendParams = {
+            const sendParams: any = {
                 amount: amount,
                 address: address,
                 tokenid: tokenId
             };
 
-            console.log(`💸 [TOKEN SEND] Command parameters:`, JSON.stringify(sendParams, null, 2));
-            console.log(`💸 [TOKEN SEND] Executing MDS.cmd.send...`);
+            // Add state variables if stateId provided (for tracking)
+            if (stateId) {
+                sendParams.state = {
+                    0: stateId,      // Unique timestamp ID
+                    1: 204           // CharmChain identifier (0xCC)
+                };
+                console.log(`🏷️[TOKEN SEND] Adding state variables: ID = ${stateId}`);
+            }
+
+            console.log(`💸[TOKEN SEND] Command parameters:`, JSON.stringify(sendParams, null, 2));
+            console.log(`💸[TOKEN SEND] Executing MDS.cmd.send...`);
 
             const response = await (MDS.cmd as any).send(sendParams);
 
-            console.log(`💸 [TOKEN SEND] Raw response:`, JSON.stringify(response, null, 2));
+            console.log(`💸[TOKEN SEND] Raw response:`, JSON.stringify(response, null, 2));
 
-            if (response && response.status === false) {
-                console.error(`❌ [TOKEN SEND] Send command failed!`);
-                console.error(`❌ [TOKEN SEND] Error:`, response.error || response.message || 'Unknown error');
-                throw new Error(response.error || response.message || 'Token send failed');
+            // Extract txpowid from response (try multiple locations)
+            let txpowid = null;
+            if (response) {
+                // 1. Direct property
+                if (response.txpowid) txpowid = response.txpowid;
+                // 2. Inside response object
+                else if (response.response && response.response.txpowid) txpowid = response.response.txpowid;
+                // 3. Inside txpow object
+                else if (response.response && response.response.txpow && response.response.txpow.txpowid) txpowid = response.response.txpow.txpowid;
+                // 4. Inside body.txn (common for pending transactions)
+                else if (response.response && response.response.body && response.response.body.txn && response.response.body.txn.txpowid) txpowid = response.response.body.txn.txpowid;
             }
 
-            console.log(`✅ [TOKEN SEND] ========== TOKEN SENT SUCCESSFULLY ==========`);
-            return response;
+            if (txpowid) {
+                console.log(`🆔 [TOKEN SEND] Transaction ID captured: ${txpowid}`);
+            } else {
+                console.warn(`⚠️ [TOKEN SEND] No txpowid found in response`);
+            }
+
+            if (response && response.status === false) {
+                // Check if it's a pending command (Read Mode)
+                const isPending = response.pending ||
+                    (response.error && response.error.toString().toLowerCase().includes("pending"));
+
+                if (isPending) {
+                    console.warn("⚠️ [TOKEN SEND] Command is pending approval (Read Mode).");
+                    console.log("🔍 [DEBUG] Full Pending Response Structure:", JSON.stringify(response, null, 2));
+
+                    // Return response with txpowid so caller knows it "succeeded" (queued) and can track it
+                    return {
+                        ...response,
+                        txpowid
+                    };
+                } else {
+                    console.error(`❌[TOKEN SEND] Send command failed!`);
+                    console.error(`❌[TOKEN SEND] Error:`, response.error || response.message || 'Unknown error');
+                    throw new Error(response.error || response.message || 'Token send failed');
+                }
+            }
+
+            console.log(`✅[TOKEN SEND] ========== TOKEN SENT SUCCESSFULLY ==========`);
+
+            // Return response with txpowid included
+            return {
+                ...response,
+                txpowid
+            };
         } catch (err) {
-            console.error(`❌ [TOKEN SEND] ========== TOKEN SEND FAILED ==========`);
-            console.error(`❌ [TOKEN SEND] Error details:`, err);
-            console.error(`❌ [TOKEN SEND] Error type:`, typeof err);
+            console.error(`❌[TOKEN SEND] ========== TOKEN SEND FAILED ==========`);
+            console.error(`❌[TOKEN SEND] Error details:`, err);
+            console.error(`❌[TOKEN SEND] Error type:`, typeof err);
             if (err instanceof Error) {
-                console.error(`❌ [TOKEN SEND] Error message:`, err.message);
-                console.error(`❌ [TOKEN SEND] Error stack:`, err.stack);
+                console.error(`❌[TOKEN SEND] Error message:`, err.message);
+                console.error(`❌[TOKEN SEND] Error stack:`, err.stack);
             }
             throw err;
         }

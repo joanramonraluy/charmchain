@@ -1,8 +1,7 @@
-import { useContext, useEffect, useState } from "react";
+import { useContext } from "react";
 import { Wifi, Menu } from "lucide-react";
 import { appContext } from "../../AppContext";
-import { MDS } from "@minima-global/mds";
-import { useRouterState } from "@tanstack/react-router";
+import { useRouterState, useNavigate } from "@tanstack/react-router";
 
 const defaultAvatar =
   "data:image/svg+xml;base64," +
@@ -25,8 +24,8 @@ const menuLabels = [
 ];
 
 export default function Header({ onToggleMenu }: HeaderProps) {
-  const { loaded } = useContext(appContext);
-  const [userAvatar, setUserAvatar] = useState<string>(defaultAvatar);
+  const { synced, userAvatar } = useContext(appContext);
+  const navigate = useNavigate();
 
   const router = useRouterState();
   const currentPath = router.location.pathname;
@@ -34,30 +33,6 @@ export default function Header({ onToggleMenu }: HeaderProps) {
   const currentItem = menuLabels.find((item) => item.to === currentPath);
   // If path is root "/", show "CharmChain" instead of "Chats"
   const pageTitle = currentPath === "/" ? "CharmChain" : (currentItem?.label || "CharmChain");
-
-  useEffect(() => {
-    if (!loaded) return;
-    let isMounted = true;
-
-    const fetchUser = async () => {
-      try {
-        const res = await MDS.cmd.maxima({ params: { action: "info" } });
-        const info = (res.response as any) || {};
-
-        if (isMounted && info) {
-          const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar;
-          setUserAvatar(icon);
-        }
-      } catch (err) {
-        console.error("Error fetching user info:", err);
-      }
-    };
-
-    fetchUser();
-    return () => {
-      isMounted = false;
-    };
-  }, [loaded]);
 
   return (
     <header className="w-full bg-[#0088cc] text-white shadow-md z-30 flex-shrink-0">
@@ -84,16 +59,21 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         <div className="flex items-center gap-4">
           <Wifi
             size={20}
-            className={`${loaded ? "text-green-300" : "text-red-300 animate-pulse"} transition-colors`}
+            className={`${synced ? "text-green-300" : "text-red-300 animate-pulse"} transition-colors`}
           />
-          <img
-            src={userAvatar}
-            alt="User avatar"
-            className="w-10 h-10 rounded-full border-4 border-white object-cover bg-white/20 md:hidden"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = defaultAvatar;
-            }}
-          />
+          <div
+            onClick={() => navigate({ to: "/settings" })}
+            className="cursor-pointer transition-transform hover:scale-105 active:scale-95 md:hidden"
+          >
+            <img
+              src={userAvatar}
+              alt="User avatar"
+              className="w-10 h-10 rounded-full border-4 border-white object-cover bg-white/20"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = defaultAvatar;
+              }}
+            />
+          </div>
         </div>
       </div>
     </header>

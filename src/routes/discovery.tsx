@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { DiscoveryService, UserProfile } from '../services/discovery.service'
-import { UserPlus, Search, Globe, X, RefreshCw } from 'lucide-react'
-import { MDS } from '@minima-global/mds'
+import { maximaDiscoveryService } from '../services/maxima-discovery.service'
+import { UserPlus, Search, Globe, X, RefreshCw, Edit } from 'lucide-react'
 
 export const Route = createFileRoute('/discovery')({
     component: DiscoveryPage,
@@ -11,7 +11,6 @@ export const Route = createFileRoute('/discovery')({
 function DiscoveryPage() {
     const [profiles, setProfiles] = useState<UserProfile[]>([])
     const [loading, setLoading] = useState(true)
-    const [myPubkey, setMyPubkey] = useState<string | null>(null)
     const [registering, setRegistering] = useState(false)
     const [showModal, setShowModal] = useState(false)
     const [username, setUsername] = useState('')
@@ -22,16 +21,28 @@ function DiscoveryPage() {
 
     useEffect(() => {
         loadData()
+
+        // Subscribe to Maxima profile broadcasts
+        const unsubscribe = maximaDiscoveryService.subscribeToProfiles((newProfile) => {
+            setProfiles(prev => {
+                // Add new profile and deduplicate
+                const updated = [...prev, newProfile];
+                return DiscoveryService.deduplicateByUsername(updated);
+            });
+
+            // Show notification
+            setNotificationMessage(`🎉 New profile discovered: ${newProfile.username}`);
+            setShowNotification(true);
+            setTimeout(() => setShowNotification(false), 3000);
+        });
+
+        return () => unsubscribe();
     }, [])
 
     const loadData = async () => {
         setLoading(true)
         try {
-            const [fetchedProfiles, keysRes] = await Promise.all([
-                DiscoveryService.getProfiles(),
-                new Promise<any>((resolve) => MDS.executeRaw('getaddress', resolve))
-            ])
-
+            const fetchedProfiles = await DiscoveryService.getProfiles()
             setProfiles(fetchedProfiles)
 
             // Check if new profiles appeared
@@ -42,10 +53,6 @@ function DiscoveryPage() {
                 setTimeout(() => setShowNotification(false), 3000)
             }
             setPreviousCount(fetchedProfiles.length)
-
-            if (keysRes.status && keysRes.response?.publickey) {
-                setMyPubkey(keysRes.response.publickey)
-            }
         } catch (e) {
             console.error(e)
         } finally {
@@ -62,10 +69,13 @@ function DiscoveryPage() {
         setRegistering(true)
         try {
             await DiscoveryService.registerProfile(username.trim(), description.trim())
-            alert("Profile registered successfully! ⛏️\n\nYour profile will appear in the list once the transaction is mined (usually 1-3 minutes). Click the refresh button to check.")
+            alert(isRegistered
+                ? "Profile updated successfully! 📝\n\nChanges will appear after the transaction is mined."
+                : "Profile registered successfully! ⛏️\n\nYour profile will appear in the list once the transaction is mined (usually 1-3 minutes). Click the refresh button to check.")
             setShowModal(false)
             setUsername('')
             setDescription('')
+            // Optional: reload data immediately to show pending? No, wait for mine.
         } catch (e) {
             console.error("Registration error:", e)
             alert("Error registering: " + e)
@@ -74,7 +84,17 @@ function DiscoveryPage() {
         }
     }
 
-    const isRegistered = profiles.some(p => p.pubkey === myPubkey)
+    const isRegistered = profiles.some(p => p.isMyProfile)
+
+    const handleEdit = () => {
+        // Find the most recent profile that is ours
+        const myProfile = profiles.find(p => p.isMyProfile)
+        if (myProfile) {
+            setUsername(myProfile.username)
+            setDescription(myProfile.description)
+            setShowModal(true)
+        }
+    }
 
     return (
         <div className="flex flex-col h-full">
@@ -100,7 +120,7 @@ function DiscoveryPage() {
                         <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
                     </button>
 
-                    {!isRegistered && (
+                    {!isRegistered ? (
                         <button
                             onClick={() => setShowModal(true)}
                             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
@@ -108,6 +128,15 @@ function DiscoveryPage() {
                             <UserPlus size={18} />
                             <span className="hidden sm:inline">Join Community</span>
                             <span className="sm:hidden">Join</span>
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handleEdit}
+                            className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                        >
+                            <Edit size={18} />
+                            <span className="hidden sm:inline">Edit Profile</span>
+                            <span className="sm:hidden">Edit</span>
                         </button>
                     )}
                 </div>
@@ -143,7 +172,7 @@ function DiscoveryPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    {profile.pubkey !== myPubkey && (
+                                    {!profile.isMyProfile && (
                                         <button className="text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors" title="Add Contact">
                                             <UserPlus size={20} />
                                         </button>
@@ -158,7 +187,7 @@ function DiscoveryPage() {
 
                                 <div className="mt-4 pt-4 border-t border-gray-50 flex justify-between items-center text-xs text-gray-400">
                                     <span>Joined: {new Date(Number(profile.lastSeen) * 1000).toLocaleDateString()}</span>
-                                    {profile.pubkey === myPubkey && (
+                                    {profile.isMyProfile && (
                                         <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">You</span>
                                     )}
                                 </div>
@@ -173,7 +202,9 @@ function DiscoveryPage() {
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center z-50 p-4">
                     <div className="bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-white">Join the Community</h2>
+                            <h2 className="text-xl font-bold text-white">
+                                {isRegistered ? 'Edit Profile' : 'Join the Community'}
+                            </h2>
                             <button
                                 onClick={() => setShowModal(false)}
                                 className="text-gray-400 hover:text-gray-200 transition-colors"
@@ -222,7 +253,7 @@ function DiscoveryPage() {
                                     disabled={registering || !username.trim()}
                                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {registering ? 'Registering...' : 'Register'}
+                                    {registering ? (isRegistered ? 'Updating...' : 'Registering...') : (isRegistered ? 'Update Profile' : 'Register')}
                                 </button>
                             </div>
                         </div>

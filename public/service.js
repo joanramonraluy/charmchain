@@ -93,7 +93,8 @@ MDS.init(function (msg) {
                 // Handle read receipts
                 if (maxjson.type === "read") {
                     MDS.log("[ServiceWorker] Read receipt received from " + pubkey);
-                    var sql = "UPDATE CHAT_MESSAGES SET state='read' WHERE publickey='" + pubkey + "' AND username='Me'";
+                    // IMPORTANT: Don't update pending messages - they haven't been sent yet!
+                    var sql = "UPDATE CHAT_MESSAGES SET state='read' WHERE publickey='" + pubkey + "' AND username='Me' AND state!='pending'";
                     MDS.sql(sql);
                     return;
                 }
@@ -101,7 +102,8 @@ MDS.init(function (msg) {
                 // Handle delivery receipts
                 if (maxjson.type === "delivery_receipt") {
                     MDS.log("[ServiceWorker] Delivery receipt received from " + pubkey);
-                    var sql = "UPDATE CHAT_MESSAGES SET state='delivered' WHERE publickey='" + pubkey + "' AND username='Me' AND state!='read'";
+                    // IMPORTANT: Don't update pending messages - they haven't been sent yet!
+                    var sql = "UPDATE CHAT_MESSAGES SET state='delivered' WHERE publickey='" + pubkey + "' AND username='Me' AND state!='read' AND state!='pending'";
                     MDS.sql(sql);
                     return;
                 }

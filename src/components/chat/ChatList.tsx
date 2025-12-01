@@ -148,7 +148,10 @@ export default function ChatList() {
         if (contact?.extradata?.icon) {
             try {
                 const decoded = decodeURIComponent(contact.extradata.icon);
-                if (decoded.startsWith("data:image")) return decoded;
+                // Check if it's a valid data URL, and not a URL ending in /0x00 (no photo)
+                if (decoded.startsWith("data:image") && !decoded.includes("/0x00")) {
+                    return decoded;
+                }
             } catch (err) {
                 console.warn("⚠️ Error decoding avatar:", err);
             }
@@ -228,8 +231,8 @@ export default function ChatList() {
                                     })
                                 }
                                 className={`relative rounded-lg shadow-sm border p-3 hover:shadow-md cursor-pointer transition-all active:bg-gray-50 ${isNewChat(chat)
-                                        ? 'bg-blue-50 border-l-4 border-blue-500'
-                                        : 'bg-white border-gray-200'
+                                    ? 'bg-blue-50 border-l-4 border-blue-500'
+                                    : 'bg-white border-gray-200'
                                     }`}
                                 onContextMenu={(e) => {
                                     e.preventDefault();
