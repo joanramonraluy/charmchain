@@ -20,16 +20,12 @@ class TransactionPollingService {
             return;
         }
 
-        console.log('🔄 [TxPolling] Starting transaction polling service');
+        console.log('🔄 [TxPolling] Starting transaction polling service...');
         this.isPolling = true;
 
-        // Poll immediately
-        this.poll();
-
-        // Then poll every POLL_INTERVAL_MS
-        this.pollingInterval = setInterval(() => {
-            this.poll();
-        }, this.POLL_INTERVAL_MS);
+        // Start polling interval
+        this.poll(); // Initial poll
+        this.pollingInterval = setInterval(() => this.poll(), this.POLL_INTERVAL_MS);
     }
 
     /**
@@ -271,12 +267,15 @@ class TransactionPollingService {
     }
 
     private async getPendingCommands(): Promise<any[]> {
-        return new Promise((resolve) => {
-            (MDS.cmd as any).pending((res: any) => {
+        return new Promise((resolve, reject) => {
+            MDS.executeRaw("pending", (res: any) => {
                 if (res.status && res.response) {
                     resolve(res.response);
                 } else {
-                    resolve([]);
+                    console.error("❌ [TxPolling] Failed to get pending commands:", res);
+                    // If we can't get pending commands, we shouldn't assume there are none.
+                    // Rejecting here prevents checkPendingCommand from falsely assuming approval.
+                    reject(new Error("Failed to fetch pending commands"));
                 }
             });
         });

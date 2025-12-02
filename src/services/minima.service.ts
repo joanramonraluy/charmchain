@@ -399,6 +399,150 @@ class MinimaService {
         }
     }
 
+    /**
+     * Handle NEWBALANCE event - a transaction has been confirmed
+     */
+    async handleNewBalance() {
+        try {
+            console.log('💰 [NEWBALANCE] Balance changed - checking for confirmed transactions...');
+
+            // Get recent transactions to find the one that triggered NEWBALANCE
+            const recentTxs: any = await new Promise((resolve) => {
+                MDS.executeRaw("txpowlist", (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!recentTxs.status || !recentTxs.response) {
+                console.log("⚠️ [NEWBALANCE] Could not fetch recent transactions");
+                return;
+            }
+
+            const txList = recentTxs.response;
+            if (!txList || txList.length === 0) {
+                return;
+            }
+
+            // Check the most recent transaction
+            const latestTx = txList[0];
+            const txpowid = latestTx.txpowid;
+
+            console.log(`🔍 [NEWBALANCE] Latest transaction: ${txpowid}`);
+
+            // Get full transaction details
+            const txDetails: any = await new Promise((resolve) => {
+                MDS.executeRaw(`txpow txpowid:${txpowid}`, (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!txDetails.status || !txDetails.response) {
+                return;
+            }
+
+            const tx = txDetails.response;
+
+            // Extract state variables to identify our transaction
+            if (!tx.body || !tx.body.txn) {
+                return;
+            }
+
+            const txn = tx.body.txn;
+            const state = txn.state;
+
+            // Check if this transaction has our CharmChain identifier
+            if (state && state.length >= 2) {
+                const stateId = state[0]?.data;  // Our unique timestamp ID
+                const charmChainId = state[1]?.data;  // Should be 204 (0xCC)
+
+                console.log(`🔍 [NEWBALANCE] State variables: stateId=${stateId}, charmChainId=${charmChainId}`);
+
+                // Verify this is a CharmChain transaction
+                if (charmChainId === '204' && stateId) {
+                    console.log(`✅ [NEWBALANCE] CharmChain transaction detected with stateId: ${stateId}`);
+
+                    // Find pending transaction by stateId (which is the MESSAGE_TIMESTAMP)
+                    const pendingTx = await this.findPendingTransactionByStateId(stateId);
+
+                    if (pendingTx) {
+                        console.log(`✅ [NEWBALANCE] Found matching pending transaction!`);
+
+                        // Update transaction with txpowid
+                        if (pendingTx.PENDINGUID) {
+                            await this.updateTransactionTxpowid(pendingTx.PENDINGUID, txpowid);
+                        }
+
+                        // Update transaction status to confirmed
+                        await this.updateTransactionStatus(txpowid, 'confirmed');
+
+                        // Update message state to 'sent'
+                        await this.updateMessageState(
+                            pendingTx.PUBLICKEY,
+                            pendingTx.MESSAGE_TIMESTAMP,
+                            'sent'
+                        );
+
+                        // Send Maxima message
+                        const metadata = JSON.parse(pendingTx.METADATA || '{}');
+
+                        if (pendingTx.TYPE === 'charm') {
+                            const { charmId, username, amount } = metadata;
+                            console.log(`📤 [NEWBALANCE] Sending charm message via Maxima...`);
+                            await this.sendMessage(
+                                pendingTx.PUBLICKEY,
+                                username || 'Unknown',
+                                charmId,
+                                'charm',
+                                '',
+                                amount || 0,
+                                pendingTx.MESSAGE_TIMESTAMP
+                            );
+                        } else if (pendingTx.TYPE === 'token') {
+                            const { tokenName, username, amount } = metadata;
+                            const tokenData = JSON.stringify({ amount, tokenName });
+                            console.log(`📤 [NEWBALANCE] Sending token message via Maxima...`);
+                            await this.sendMessage(
+                                pendingTx.PUBLICKEY,
+                                username || 'Unknown',
+                                tokenData,
+                                'token',
+                                '',
+                                0,
+                                pendingTx.MESSAGE_TIMESTAMP
+                            );
+                        }
+
+                        console.log(`✅ [NEWBALANCE] Transaction ${txpowid} processed successfully`);
+                    } else {
+                        console.log(`⚠️ [NEWBALANCE] No pending transaction found for stateId: ${stateId}`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('❌ [NEWBALANCE] Error handling balance change:', err);
+        }
+    }
+
+    /**
+     * Find pending transaction by stateId (MESSAGE_TIMESTAMP)
+     */
+    async findPendingTransactionByStateId(stateId: string): Promise<any | null> {
+        const sql = `
+            SELECT * FROM TRANSACTIONS 
+            WHERE status='pending' 
+            AND message_timestamp=${stateId}
+            LIMIT 1
+        `;
+
+        try {
+            const res = await this.runSQL(sql);
+            return res.rows && res.rows.length > 0 ? res.rows[0] : null;
+        } catch (err) {
+            console.error(`❌ [TX] Failed to find pending transaction by stateId:`, err);
+            return null;
+        }
+    }
+
     processIncomingMessage(event: any) {
         if (!event.data) {
             console.warn("⚠️ [MAXIMA] Event has no data:", event);
@@ -650,6 +794,151 @@ class MinimaService {
         } catch (err) {
             console.error(`❌ [TX] Failed to update transaction status:`, err);
             throw err;
+        }
+    }
+
+    /**
+     * Cleanup orphaned pending transactions (manual trigger)
+     * Call this to remove pending transactions that are no longer in node's pending list
+     */
+    async cleanupOrphanedPendingTransactions(): Promise<void> {
+        console.log('🧹 [Cleanup] Starting manual cleanup of orphaned transactions...');
+
+        // Get all pending transactions from DB
+        const sql = "SELECT * FROM TRANSACTIONS WHERE status='pending'";
+        const result = await this.runSQL(sql);
+
+        if (!result.rows || result.rows.length === 0) {
+            console.log('✅ [Cleanup] No pending transactions found');
+            return;
+        }
+
+        console.log(`🔍 [Cleanup] Found ${result.rows.length} pending transactions in DB`);
+
+        // Get actual pending commands from node
+        const pendingCommands: any = await new Promise((resolve) => {
+            MDS.executeRaw("pending", (res: any) => {
+                if (res.status && res.response) {
+                    resolve(res.response);
+                } else {
+                    resolve([]);
+                }
+            });
+        });
+
+        const nodePendingUids = new Set(pendingCommands.map((cmd: any) => cmd.uid));
+        console.log(`🔍 [Cleanup] Found ${nodePendingUids.size} pending commands in node`);
+
+        let cleanedCount = 0;
+
+        // Check each DB transaction
+        for (const tx of result.rows) {
+            const { PENDINGUID, TXPOWID, MESSAGE_TIMESTAMP, PUBLICKEY, CREATED_AT } = tx;
+
+            // Case 1: Has pendinguid but no txpowid (waiting for approval)
+            if (PENDINGUID && (!TXPOWID || TXPOWID === 'null')) {
+                // Check if this pendinguid exists in node
+                if (!nodePendingUids.has(PENDINGUID)) {
+                    const age = Date.now() - CREATED_AT;
+                    const ageMinutes = Math.floor(age / (1000 * 60));
+
+                    console.log(`🗑️ [Cleanup] Orphaned pendinguid: ${PENDINGUID} (age: ${ageMinutes}m) - marking as failed`);
+
+                    await this.updateTransactionStatusByPendingUid(PENDINGUID, 'rejected');
+                    await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
+                    cleanedCount++;
+                    continue;
+                }
+            }
+
+            // Case 2: Has txpowid (was approved, should check actual status)
+            if (TXPOWID && TXPOWID !== 'null') {
+                const actualStatus = await this.checkTransactionStatus(TXPOWID);
+
+                if (actualStatus === 'confirmed') {
+                    console.log(`✅ [Cleanup] Transaction ${TXPOWID} is confirmed - updating to sent`);
+                    await this.updateTransactionStatus(TXPOWID, 'confirmed');
+                    await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
+                    cleanedCount++;
+                } else if (actualStatus === 'unknown') {
+                    const age = Date.now() - CREATED_AT;
+                    const ageMinutes = Math.floor(age / (1000 * 60));
+
+                    // If older than 1 hour and unknown, likely rejected
+                    if (age > 60 * 60 * 1000) {
+                        console.log(`🗑️ [Cleanup] Transaction ${TXPOWID} unknown and old (${ageMinutes}m) - marking as failed`);
+                        await this.updateTransactionStatus(TXPOWID, 'rejected');
+                        await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
+                        cleanedCount++;
+                    }
+                } else if (actualStatus === 'pending') {
+                    console.log(`⏳ [Cleanup] Transaction ${TXPOWID} still pending in mempool`);
+                }
+            }
+        }
+
+        console.log(`✅ [Cleanup] Complete. Cleaned ${cleanedCount} orphaned transaction(s)`);
+
+        // NOW: Cleanup stuck messages (messages that are pending but have no pending transaction)
+        await this.cleanupStuckMessages();
+    }
+
+    /**
+     * Cleanup messages that are stuck in 'pending' state
+     */
+    async cleanupStuckMessages(): Promise<void> {
+        console.log('🧹 [Cleanup] Checking for stuck pending messages...');
+
+        // Get all pending messages
+        const sql = "SELECT * FROM CHAT_MESSAGES WHERE state='pending'";
+        const result = await this.runSQL(sql);
+
+        if (!result.rows || result.rows.length === 0) {
+            console.log('✅ [Cleanup] No pending messages found');
+            return;
+        }
+
+        console.log(`🔍 [Cleanup] Found ${result.rows.length} pending messages. Verifying consistency...`);
+
+        let fixedCount = 0;
+
+        for (const msg of result.rows) {
+            const timestamp = msg.DATE; // This links to TRANSACTIONS.message_timestamp
+
+            // Check if there is a transaction for this message
+            const txSql = `SELECT * FROM TRANSACTIONS WHERE message_timestamp=${timestamp}`;
+            const txResult = await this.runSQL(txSql);
+
+            if (!txResult.rows || txResult.rows.length === 0) {
+                // Case 1: Message is pending, but NO transaction record exists
+                // This is a zombie message (transaction creation might have failed)
+                // We should mark it as failed
+                console.log(`🗑️ [Cleanup] Message ${timestamp} has NO transaction record - marking as failed`);
+                await this.updateMessageState(msg.PUBLICKEY, timestamp, 'failed');
+                fixedCount++;
+            } else {
+                // Case 2: Transaction record exists
+                const tx = txResult.rows[0];
+
+                if (tx.STATUS === 'confirmed') {
+                    // Transaction is confirmed, but message is still pending -> Fix it
+                    console.log(`✅ [Cleanup] Message ${timestamp} has CONFIRMED transaction - fixing state to sent`);
+                    await this.updateMessageState(msg.PUBLICKEY, timestamp, 'sent');
+                    fixedCount++;
+                } else if (tx.STATUS === 'rejected') {
+                    // Transaction is rejected, but message is still pending -> Fix it
+                    console.log(`❌ [Cleanup] Message ${timestamp} has REJECTED transaction - fixing state to failed`);
+                    await this.updateMessageState(msg.PUBLICKEY, timestamp, 'failed');
+                    fixedCount++;
+                }
+                // If transaction is 'pending', we leave it (handled by cleanupOrphanedPendingTransactions)
+            }
+        }
+
+        if (fixedCount > 0) {
+            console.log(`✅ [Cleanup] Fixed ${fixedCount} stuck messages`);
+        } else {
+            console.log(`✅ [Cleanup] All pending messages have valid pending transactions`);
         }
     }
 
@@ -1064,10 +1353,137 @@ class MinimaService {
     }
 
     processEvent(event: any) {
-        // Only log MAXIMA events to reduce noise
+        // Handle MAXIMA events
         if (event.event === "MAXIMA") {
             console.log("✉️ [MDS] MAXIMA event detected:", event);
             this.processIncomingMessage(event);
+        }
+
+        // Handle NEWBALANCE events for transaction tracking
+        if (event.event === "NEWBALANCE") {
+            console.log("💰 [MDS] NEWBALANCE event detected");
+            console.log("💰 [MDS] NEWBALANCE full event:", JSON.stringify(event, null, 2));
+            this.handleNewBalance();
+        }
+
+        // Handle MDS_PENDING for immediate accept/deny detection
+        if (event.event === "MDS_PENDING") {
+            console.log("🔔 [MDS] MDS_PENDING event detected");
+            console.log("🔔 [MDS] MDS_PENDING full event:", JSON.stringify(event, null, 2));
+            this.handlePendingEvent(event.data);
+        }
+    }
+
+    /**
+     * Handle MDS_PENDING event - immediate notification when user accepts/denies a transaction
+     * This is much faster and more reliable than polling
+     */
+    private async handlePendingEvent(data: any) {
+        try {
+            const { uid, accept, result } = data;
+
+            if (!uid) {
+                console.warn("⚠️ [MDS_PENDING] No uid in event data");
+                return;
+            }
+
+            console.log(`🔔 [MDS_PENDING] Transaction ${uid} - Accept: ${accept}`);
+
+            // Find the transaction by pendinguid
+            const sql = `SELECT * FROM TRANSACTIONS WHERE pendinguid='${uid}' LIMIT 1`;
+            const txResult = await this.runSQL(sql);
+
+            if (!txResult.rows || txResult.rows.length === 0) {
+                console.log(`⚠️ [MDS_PENDING] No transaction found for uid: ${uid}`);
+                return;
+            }
+
+            const transaction = txResult.rows[0];
+            const { PUBLICKEY, MESSAGE_TIMESTAMP, TYPE, METADATA } = transaction;
+
+            if (accept) {
+                // Transaction was ACCEPTED by user
+                // BUT we must check if execution was successful (e.g. sufficient funds)
+                if (result && result.status === false) {
+                    console.log(`❌ [MDS_PENDING] Transaction ACCEPTED but FAILED execution: ${uid}`);
+                    console.log(`❌ [MDS_PENDING] Error: ${result.error}`);
+
+                    // Update transaction status to rejected
+                    await this.updateTransactionStatusByPendingUid(uid, 'rejected');
+
+                    // Update message state to failed
+                    await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
+
+                    return;
+                }
+
+                console.log(`✅ [MDS_PENDING] Transaction ACCEPTED and EXECUTED: ${uid}`);
+
+                // Extract txpowid from result if available
+                let txpowid = null;
+                if (result && result.response) {
+                    // Try multiple locations for txpowid
+                    if (result.response.txpowid) txpowid = result.response.txpowid;
+                    else if (result.response.txpow && result.response.txpow.txpowid) txpowid = result.response.txpow.txpowid;
+                }
+
+                // Update transaction with txpowid if we got it
+                if (txpowid) {
+                    await this.updateTransactionTxpowid(uid, txpowid);
+                    console.log(`🆔 [MDS_PENDING] Updated txpowid: ${txpowid}`);
+                }
+
+                // Update transaction status to confirmed
+                await this.updateTransactionStatusByPendingUid(uid, 'confirmed');
+
+                // Update message state to 'sent'
+                await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
+
+                // Send Maxima message
+                const metadata = JSON.parse(METADATA || '{}');
+
+                if (TYPE === 'charm') {
+                    const { charmId, username, amount } = metadata;
+                    console.log(`📤 [MDS_PENDING] Sending charm message via Maxima...`);
+                    await this.sendMessage(
+                        PUBLICKEY,
+                        username || 'Unknown',
+                        charmId,
+                        'charm',
+                        '',
+                        amount || 0,
+                        MESSAGE_TIMESTAMP
+                    );
+                } else if (TYPE === 'token') {
+                    const { tokenName, username, amount } = metadata;
+                    const tokenData = JSON.stringify({ amount, tokenName });
+                    console.log(`📤 [MDS_PENDING] Sending token message via Maxima...`);
+                    await this.sendMessage(
+                        PUBLICKEY,
+                        username || 'Unknown',
+                        tokenData,
+                        'token',
+                        '',
+                        0,
+                        MESSAGE_TIMESTAMP
+                    );
+                }
+
+                console.log(`✅ [MDS_PENDING] Transaction ${uid} processed successfully`);
+            } else {
+                // Transaction was DENIED
+                console.log(`❌ [MDS_PENDING] Transaction DENIED: ${uid}`);
+
+                // Update transaction status to rejected
+                await this.updateTransactionStatusByPendingUid(uid, 'rejected');
+
+                // Update message state to failed
+                await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
+
+                console.log(`✅ [MDS_PENDING] Transaction ${uid} marked as failed`);
+            }
+        } catch (err) {
+            console.error('❌ [MDS_PENDING] Error handling pending event:', err);
         }
     }
 }

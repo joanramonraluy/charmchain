@@ -88,15 +88,19 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
   }, [status, isTokenTransfer, isCharm]);
 
   // Enhanced colors with gradients for token transfers
-  const bubbleColor = isCharm
-    ? "bg-gradient-to-br from-indigo-100 to-blue-50 border-2 border-indigo-200 shadow-lg"
-    : isTokenTransfer
-      ? "bg-gradient-to-br from-cyan-100 via-sky-50 to-blue-50 border-2 border-cyan-300 shadow-lg"
-      : fromMe
-        ? status === 'failed'
-          ? "bg-red-50 border border-red-100 shadow-sm"
-          : "bg-blue-50 shadow-sm"
-        : "bg-white shadow-sm";
+  let bubbleColor = "";
+
+  if (status === 'failed') {
+    bubbleColor = "bg-red-50 border-2 border-red-200 shadow-sm opacity-90 grayscale-[0.3]";
+  } else if (isCharm) {
+    bubbleColor = "bg-gradient-to-br from-indigo-100 to-blue-50 border-2 border-indigo-200 shadow-lg";
+  } else if (isTokenTransfer) {
+    bubbleColor = "bg-gradient-to-br from-cyan-100 via-sky-50 to-blue-50 border-2 border-cyan-300 shadow-lg";
+  } else if (fromMe) {
+    bubbleColor = "bg-blue-50 shadow-sm";
+  } else {
+    bubbleColor = "bg-white shadow-sm";
+  }
 
   const borderRadius = fromMe
     ? "rounded-l-lg rounded-br-lg rounded-tr-none"
@@ -252,6 +256,12 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
           {(isCharm || isTokenTransfer) && (status === 'sent' || status === 'delivered' || status === 'read') && (
             <span className="flex items-center gap-1 bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
               <span>✓</span> Transaction Confirmed
+            </span>
+          )}
+
+          {(isCharm || isTokenTransfer) && status === 'failed' && (
+            <span className="flex items-center gap-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
+              <span>❌</span> Transaction Denied
             </span>
           )}
 

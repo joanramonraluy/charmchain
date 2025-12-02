@@ -172,6 +172,10 @@ function ChatPage() {
     const initChat = async () => {
       console.log("🚀 [ChatPage] initChat START for", contact.publickey);
 
+      // Cleanup orphaned pending transactions for this chat
+      console.log("🧹 [ChatPage] Cleaning up orphaned transactions...");
+      await minimaService.cleanupOrphanedPendingTransactions();
+
       // Initial load
       await loadMessagesFromDB();
 
