@@ -15,8 +15,14 @@ import { routeTree } from "./routeTree.gen"
 
 
 
+// Check if we need to restore a route after reload (e.g. from Settings check permissions)
+const lastRoute = localStorage.getItem("lastRoute");
+if (lastRoute) {
+  localStorage.removeItem("lastRoute");
+}
+
 const memoryHistory = createMemoryHistory({
-  initialEntries: ["/"],
+  initialEntries: [lastRoute || "/"],
 })
 
 const router = createRouter({ routeTree, history: memoryHistory })

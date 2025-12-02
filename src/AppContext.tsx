@@ -86,14 +86,49 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
         if (msg.event === MinimaEvents.INITED) {
           setLoaded(true)
           console.log("MDS initialised and ready! 🚀")
-          console.log("MDS Init Message:", msg)
+          console.log("MDS Init Message FULL:", JSON.stringify(msg, null, 2))
 
           // Check for Write Mode permission
           // Usually found in msg.data.conf.write or similar. 
-          // We'll check a few common locations just in case.
-          const isWriteMode = msg.data?.conf?.write === true || msg.data?.write === true;
-          setWriteMode(isWriteMode);
-          console.log("📝 [AppContext] Write Mode:", isWriteMode);
+          const confWrite = msg.data?.conf?.write;
+          const rootWrite = msg.data?.write;
+          const confPermission = msg.data?.conf?.permission;
+
+          console.log(`📝 [AppContext] Raw Write Mode values: conf.write=${confWrite}, write=${rootWrite}, conf.permission=${confPermission}`);
+
+          // Check boolean true, string "true", or permission "write"
+          // We keep this as a first pass, but rely on the 'mds' command for truth
+          let initialWriteMode = (confWrite === true || confWrite === "true") ||
+            (rootWrite === true || rootWrite === "true") ||
+            (confPermission === "write");
+
+          if (initialWriteMode) setWriteMode(true);
+
+          // ROBUST CHECK: Execute 'mds' command to find our own permission
+          // This is the most reliable way as it queries the node directly
+          (MDS as any).executeRaw("mds", (res: any) => {
+            console.log("📝 [AppContext] 'mds' command response:", res);
+            if (res.status && res.response && res.response.minidapps) {
+              const myDapp = res.response.minidapps.find((d: any) => d.conf?.name === "CharmChain");
+              if (myDapp) {
+                const perm = myDapp.conf.permission;
+                console.log(`📝 [AppContext] Found CharmChain permission via 'mds' command: ${perm}`);
+
+                if (perm === "write") {
+                  setWriteMode(true);
+                  console.log("📝 [AppContext] Write Mode ENABLED");
+                } else {
+                  // If explicitly 'read', ensure we set it to false (though default is false)
+                  if (initialWriteMode && perm !== "write") {
+                    console.warn("⚠️ [AppContext] Initial check said Write, but 'mds' command says Read. Reverting to Read.");
+                    setWriteMode(false);
+                  }
+                }
+              } else {
+                console.warn("⚠️ [AppContext] Could not find 'CharmChain' in minidapps list");
+              }
+            }
+          });
 
           // Initialize database after MDS is ready
           // We await this to ensure tables exist before running cleanup

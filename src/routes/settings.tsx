@@ -494,8 +494,8 @@ function Settings() {
 
                   <button
                     onClick={() => {
-                      // Attempt a dummy write to trigger permission prompt if supported, 
-                      // or just reload to check if user changed it.
+                      // Save current path so we can restore it after reload
+                      localStorage.setItem("lastRoute", "/settings");
                       window.location.reload();
                     }}
                     className="w-full mt-2 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
