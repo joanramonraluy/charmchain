@@ -36,14 +36,17 @@ interface ParsedMessage {
   tokenAmount?: { amount: string; tokenName: string }; // For token transfer messages
 }
 
-import PendingTransactionsModal from "../../components/chat/PendingTransactionsModal";
+
 
 function ChatPage() {
   // Helper to remove duplicate messages (by timestamp + text)
   const deduplicateMessages = (msgs: ParsedMessage[]) => {
     const seen = new Set<string>();
     return msgs.filter((m) => {
-      const key = `${m.timestamp}-${m.text}`;
+      // Create a more unique key including type info
+      const typeStr = m.charm ? 'charm' : m.tokenAmount ? 'token' : 'text';
+      const key = `${m.timestamp}-${typeStr}-${m.text || ''}`;
+
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -56,7 +59,7 @@ function ChatPage() {
   const [showCharmSelector, setShowCharmSelector] = useState(false);
   const [showTokenSelector, setShowTokenSelector] = useState(false);
   const [showAttachments, setShowAttachments] = useState(false);
-  const [showPendingModal, setShowPendingModal] = useState(false);
+
 
   const [showReadModeWarning, setShowReadModeWarning] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -148,15 +151,25 @@ function ChatPage() {
 
           // console.log(`🔍 [loadMessages] Message timestamp=${row.DATE}, STATE from DB="${row.STATE}", type=${row.TYPE}`);
 
-          return {
+          // Safer status parsing - do NOT default to 'sent' blindly
+          let parsedStatus: any = row.STATE;
+          if (!parsedStatus || parsedStatus === 'null' || parsedStatus === 'undefined') {
+            // If state is missing, default based on type
+            // Charms/Tokens should default to pending if unknown, Text defaults to sent (legacy)
+            parsedStatus = (isCharm || isToken) ? 'pending' : 'sent';
+          }
+
+          const parsed = {
             text: displayText,
             fromMe: row.USERNAME === "Me",
             charm: charmObj,
             amount: isCharm ? Number(row.AMOUNT || 0) : null,
             timestamp: Number(row.DATE || 0),
-            status: (row.STATE as 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'zombie') || 'sent',
+            status: parsedStatus,
             tokenAmount,
           };
+
+          return parsed;
         });
 
         // console.log(`🔍 [loadMessages] Loaded ${parsedMessages.length} messages. Pending: ${parsedMessages.filter(m => m.status === 'pending').length}, Zombie: ${parsedMessages.filter(m => m.status === 'zombie').length}`);
@@ -534,16 +547,7 @@ function ChatPage() {
 
         {/* Header Actions */}
         <div className="flex gap-4">
-          <button
-            className="opacity-80 hover:opacity-100 relative"
-            onClick={() => setShowPendingModal(true)}
-            title="Pending Transactions"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            {/* Optional: Add a red dot if there are pending transactions (would need state for count) */}
-          </button>
+
 
           <button className="opacity-80 hover:opacity-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -553,10 +557,7 @@ function ChatPage() {
         </div>
       </div>
 
-      {/* Pending Transactions Modal */}
-      {showPendingModal && (
-        <PendingTransactionsModal onClose={() => setShowPendingModal(false)} />
-      )}
+
 
       {/* CHAT BODY - Scrollable */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto flex flex-col p-2 sm:p-4 bg-gray-50 relative">
@@ -612,7 +613,7 @@ function ChatPage() {
           const showDate = currentDate !== prevDate;
 
           return (
-            <div key={i} className="flex flex-col w-full z-0 relative">
+            <div key={`${msg.timestamp}-${msg.text || 'no-text'}-${i}`} className="flex flex-col w-full z-0 relative">
               {showDate && msg.timestamp && (
                 <div className="flex justify-center my-3 sticky top-2 z-10">
                   <span className="text-xs text-gray-600 font-medium bg-[#E1F3FB] border border-white/50 px-3 py-1.5 rounded-lg shadow-sm uppercase tracking-wide backdrop-blur-sm">

@@ -253,13 +253,13 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
             </span>
           )}
 
-          {(isCharm || isTokenTransfer) && (status === 'sent' || status === 'delivered' || status === 'read') && (
+          {((isCharm && charm) || (isTokenTransfer && tokenAmount)) && (status === 'sent' || status === 'delivered' || status === 'read') && fromMe && (
             <span className="flex items-center gap-1 bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
               <span>✓</span> Transaction Confirmed
             </span>
           )}
 
-          {(isCharm || isTokenTransfer) && status === 'failed' && (
+          {((isCharm && charm) || (isTokenTransfer && tokenAmount)) && status === 'failed' && fromMe && (
             <span className="flex items-center gap-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1">
               <span>❌</span> Transaction Denied
             </span>
@@ -269,11 +269,33 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
             {new Date(timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
           {fromMe && (
-            <span>
-              {status === 'sent' && '✓'}
-              {status === 'delivered' && '✓✓'}
-              {status === 'read' && <span className="text-blue-300">✓✓</span>}
-              {status === 'failed' && '❌'}
+            <span className="flex items-center ml-1">
+              {status === 'sent' && (
+                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+              {status === 'delivered' && (
+                <div className="flex relative w-5 h-3.5">
+                  <svg className="w-3.5 h-3.5 text-gray-400 absolute left-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <svg className="w-3.5 h-3.5 text-gray-400 absolute left-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              )}
+              {status === 'read' && (
+                <div className="flex relative w-5 h-3.5">
+                  <svg className="w-3.5 h-3.5 text-blue-600 absolute left-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <svg className="w-3.5 h-3.5 text-blue-600 absolute left-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+              )}
+              {status === 'failed' && <span className="text-xs">❌</span>}
             </span>
           )}
         </div>
