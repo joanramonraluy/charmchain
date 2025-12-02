@@ -8,7 +8,6 @@ import { Paperclip } from "lucide-react";
 import MessageBubble from "../../components/chat/MessageBubble";
 import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
-import { transactionPollingService } from "../../services/transaction-polling.service";
 
 export const Route = createFileRoute("/chat/$address")({
   component: ChatPage,
@@ -37,6 +36,8 @@ interface ParsedMessage {
   tokenAmount?: { amount: string; tokenName: string }; // For token transfer messages
 }
 
+import PendingTransactionsModal from "../../components/chat/PendingTransactionsModal";
+
 function ChatPage() {
   // Helper to remove duplicate messages (by timestamp + text)
   const deduplicateMessages = (msgs: ParsedMessage[]) => {
@@ -55,6 +56,7 @@ function ChatPage() {
   const [showCharmSelector, setShowCharmSelector] = useState(false);
   const [showTokenSelector, setShowTokenSelector] = useState(false);
   const [showAttachments, setShowAttachments] = useState(false);
+  const [showPendingModal, setShowPendingModal] = useState(false);
 
   const [showReadModeWarning, setShowReadModeWarning] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -157,7 +159,7 @@ function ChatPage() {
           };
         });
 
-        console.log(`🔍 [loadMessages] Loaded ${parsedMessages.length} messages. Pending: ${parsedMessages.filter(m => m.status === 'pending').length}, Zombie: ${parsedMessages.filter(m => m.status === 'zombie').length}`);
+        // console.log(`🔍 [loadMessages] Loaded ${parsedMessages.length} messages. Pending: ${parsedMessages.filter(m => m.status === 'pending').length}, Zombie: ${parsedMessages.filter(m => m.status === 'zombie').length}`);
         const deduplicatedMessages = deduplicateMessages(parsedMessages);
         setMessages(deduplicatedMessages);
       }
@@ -170,17 +172,20 @@ function ChatPage() {
     if (!address || !contact?.publickey) return;
 
     const initChat = async () => {
-      console.log("🚀 [ChatPage] initChat START for", contact.publickey);
-
-      // Cleanup orphaned pending transactions for this chat
-      console.log("🧹 [ChatPage] Cleaning up orphaned transactions...");
-      await minimaService.cleanupOrphanedPendingTransactions();
+      // console.log("🚀 [ChatPage] initChat START for", contact.publickey);
 
       // Initial load
       await loadMessagesFromDB();
 
       // Mark chat as opened
       minimaService.markChatAsOpened(contact.publickey);
+
+      // Verify pending transactions when entering chat
+      // This ensures we catch any updates that happened while outside the chat
+      // console.log("🧹 [ChatPage] Verifying pending transactions...");
+      minimaService.cleanupOrphanedPendingTransactions().catch(err => {
+        console.error("❌ [ChatPage] Error verifying pending transactions:", err);
+      });
     };
 
     initChat();
@@ -194,39 +199,6 @@ function ChatPage() {
   }, [address, contact, userName]);
 
 
-  /* ----------------------------------------------------------------------------
-      LISTEN FOR TRANSACTION STATUS UPDATES FROM POLLING SERVICE
-  ---------------------------------------------------------------------------- */
-  useEffect(() => {
-    if (!contact) return;
-
-    console.log(`🔊 [ChatPage] Subscribing to transaction status updates for ${contact.publickey}`);
-
-    // Subscribe to transaction status updates
-    const unsubscribe = transactionPollingService.subscribe((txpowid, status, transaction) => {
-      console.log(`📬 [ChatPage] Transaction update: ${txpowid} -> ${status}`);
-
-      // Only handle transactions for this contact
-      if (transaction.PUBLICKEY !== contact.publickey) {
-        return;
-      }
-
-      if (status === 'confirmed') {
-        console.log(`✅ [ChatPage] Transaction confirmed! Reloading messages...`);
-        // Reload messages to show updated status
-        loadMessagesFromDB();
-      } else if (status === 'rejected') {
-        console.log(`❌ [ChatPage] Transaction rejected! Reloading messages...`);
-        // Reload messages to show failed status
-        loadMessagesFromDB();
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
-  }, [contact]);
-
   const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
 
   /* ----------------------------------------------------------------------------
@@ -237,7 +209,7 @@ function ChatPage() {
 
     // Always check app status when entering chat
     if (contact.publickey) {
-      console.log("🔄 [Chat] Auto-checking app status...");
+      // console.log("🔄 [Chat] Auto-checking app status...");
       setAppStatus('checking');
       minimaService.sendPing(contact.publickey).catch(console.error);
 
@@ -421,6 +393,10 @@ function ChatPage() {
       // Check if token send is pending
       const isTokenPending = tokenResponse && (tokenResponse.pending || (tokenResponse.error && tokenResponse.error.toString().toLowerCase().includes("pending")));
 
+      // Extract txpowid and pendinguid
+      const txpowid = tokenResponse?.txpowid;
+      const pendinguid = tokenResponse?.pendinguid;
+
       if (isTokenPending) {
         console.log("⚠️ [ChatPage] Token send is pending. Keeping status as 'pending' and NOT sending notification message.");
 
@@ -438,6 +414,21 @@ function ChatPage() {
           amount: Number(amount),
           date: tempTimestamp
         });
+
+        // Store transaction in TRANSACTIONS table if we have a txpowid OR pendinguid
+        if (txpowid || pendinguid) {
+          await minimaService.insertTransaction(
+            txpowid,
+            'token',
+            contact.publickey,
+            tempTimestamp,
+            { tokenId, amount, tokenName, username },
+            pendinguid
+          );
+          console.log(`💾 [ChatPage] Token transaction tracked: ${txpowid || 'No TXPOWID'} (PendingUID: ${pendinguid || 'None'})`);
+        } else {
+          console.warn(`⚠️ [ChatPage] Could not track token transaction: No txpowid AND no pendinguid`);
+        }
 
         // Reload messages from DB to show the pending message
         await loadMessagesFromDB();
@@ -541,13 +532,19 @@ function ChatPage() {
           </div>
         </div>
 
-        {/* Header Actions (Placeholder) */}
+        {/* Header Actions */}
         <div className="flex gap-4">
-          <button className="opacity-80 hover:opacity-100">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          <button
+            className="opacity-80 hover:opacity-100 relative"
+            onClick={() => setShowPendingModal(true)}
+            title="Pending Transactions"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
+            {/* Optional: Add a red dot if there are pending transactions (would need state for count) */}
           </button>
+
           <button className="opacity-80 hover:opacity-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -555,6 +552,11 @@ function ChatPage() {
           </button>
         </div>
       </div>
+
+      {/* Pending Transactions Modal */}
+      {showPendingModal && (
+        <PendingTransactionsModal onClose={() => setShowPendingModal(false)} />
+      )}
 
       {/* CHAT BODY - Scrollable */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto flex flex-col p-2 sm:p-4 bg-gray-50 relative">

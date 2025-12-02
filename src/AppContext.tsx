@@ -1,7 +1,7 @@
 import { Block, MDS, MinimaEvents } from "@minima-global/mds"
 import { createContext, useEffect, useRef, useState } from "react"
 import { minimaService } from "./services/minima.service"
-import { transactionPollingService } from "./services/transaction-polling.service"
+
 
 const defaultAvatar =
   "data:image/svg+xml;base64," +
@@ -96,14 +96,20 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
           console.log("📝 [AppContext] Write Mode:", isWriteMode);
 
           // Initialize database after MDS is ready
-          minimaService.initDB()
+          // We await this to ensure tables exist before running cleanup
+          minimaService.initDB().then(() => {
+            // Initialize profile (publish address for token receiving)
+            minimaService.initProfile()
 
-          // Initialize profile (publish address for token receiving)
-          minimaService.initProfile()
+            // Cleanup orphaned pending transactions on app start
+            // This syncs the DB with the actual node state (handling offline approvals/denials)
+            console.log("🧹 [AppContext] Running initial transaction cleanup...");
+            minimaService.cleanupOrphanedPendingTransactions();
+          });
 
-          // Start transaction polling service
-          console.log("🔄 [AppContext] Starting transaction polling service");
-          transactionPollingService.start();
+          // Start transaction polling service - DISABLED (replaced by MDS_PENDING event)
+          // console.log("🔄 [AppContext] Starting transaction polling service");
+          // transactionPollingService.start();
 
           // Fetch user profile
           fetchUserProfile()

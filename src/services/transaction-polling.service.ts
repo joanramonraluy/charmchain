@@ -1,5 +1,5 @@
 // src/services/transaction-polling.service.ts
-import { MDS } from "@minima-global/mds";
+
 import { minimaService } from './minima.service';
 
 type TransactionStatusCallback = (txpowid: string, status: 'confirmed' | 'rejected', transaction: any) => void;
@@ -63,7 +63,7 @@ class TransactionPollingService {
 
             // First poll: Cleanup orphaned pending transactions
             if (!this.cleanupDone) {
-                await this.cleanupOrphanedTransactions(pendingTransactions);
+                await this.cleanupOrphanedTransactions();
                 this.cleanupDone = true;
             }
 
@@ -78,39 +78,11 @@ class TransactionPollingService {
     /**
      * Clean up transactions that are pending in DB but no longer in node
      */
-    private async cleanupOrphanedTransactions(pendingTransactions: any[]) {
-        console.log('🧹 [TxPolling] Running cleanup check for orphaned transactions...');
-
-        // Get actual pending commands from node
-        const nodePendingCommands = await this.getPendingCommands();
-        const nodePendingUids = new Set(nodePendingCommands.map((cmd: any) => cmd.uid));
-
-        // Check each DB transaction
-        for (const tx of pendingTransactions) {
-            const { PENDINGUID, TXPOWID, MESSAGE_TIMESTAMP, PUBLICKEY } = tx;
-
-            // Skip if it has a TXPOWID (it's being tracked normally)
-            if (TXPOWID && TXPOWID !== 'null') continue;
-
-            // Skip if no PENDINGUID
-            if (!PENDINGUID || PENDINGUID === 'null') continue;
-
-            // Check if this pendinguid exists in node
-            if (!nodePendingUids.has(PENDINGUID)) {
-                // Orphaned transaction - was pending but no longer in node
-                console.log(`🗑️ [TxPolling] Orphaned transaction found: ${PENDINGUID} - marking as failed`);
-
-                await minimaService.updateTransactionStatusByPendingUid(PENDINGUID, 'rejected');
-                await minimaService.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
-            }
-        }
-
-        console.log('✅ [TxPolling] Cleanup complete');
+    private async cleanupOrphanedTransactions() {
+        console.log('🧹 [TxPolling] Delegating to MinimaService for blockchain verification...');
+        await minimaService.cleanupOrphanedPendingTransactions();
     }
 
-    /**
-     * Check the status of a single transaction
-     */
     /**
      * Check the status of a single transaction
      */
@@ -120,20 +92,23 @@ class TransactionPollingService {
         try {
             // If we have a TXPOWID, check it normally
             if (TXPOWID && TXPOWID !== 'null' && TXPOWID !== 'undefined') {
-                const status = await minimaService.checkTransactionStatus(TXPOWID);
+                const result = await minimaService.checkTransactionStatus(TXPOWID);
 
-                console.log(`📊 [TxPolling] Transaction ${TXPOWID}: ${status}`);
+                console.log(`📊 [TxPolling] Transaction ${TXPOWID}: ${result.status}${result.timestamp ? ` at ${result.timestamp}` : ''}`);
 
-                if (status === 'confirmed') {
-                    await this.handleConfirmedTransaction(TXPOWID, transaction);
-                } else if (status === 'rejected') {
+                if (result.status === 'confirmed') {
+                    await this.handleConfirmedTransaction(TXPOWID, transaction, result.timestamp);
+                } else if (result.status === 'rejected') {
                     await this.handleRejectedTransaction(TXPOWID, transaction);
                 }
                 // If status is 'pending' or 'unknown', we'll check again next poll
             }
             // If no TXPOWID but we have PENDINGUID
             else if (PENDINGUID && PENDINGUID !== 'null' && PENDINGUID !== 'undefined') {
-                await this.checkPendingCommand(PENDINGUID, transaction);
+                // We can't check status of pending command without 'pending' command.
+                // We just have to wait for MDS_PENDING event.
+                // So we do nothing here.
+                // console.log(`⏳ [TxPolling] Waiting for MDS_PENDING event for ${PENDINGUID}`);
             }
 
         } catch (err) {
@@ -141,15 +116,18 @@ class TransactionPollingService {
         }
     }
 
-    private async handleConfirmedTransaction(txpowid: string, transaction: any) {
+    private async handleConfirmedTransaction(txpowid: string, transaction: any, blockchainTimestamp?: number) {
         console.log(`✅ [TxPolling] Transaction confirmed: ${txpowid}`);
         const { PUBLICKEY, MESSAGE_TIMESTAMP, TYPE, METADATA } = transaction;
 
         // Update transaction status in database
         await minimaService.updateTransactionStatus(txpowid, 'confirmed');
 
-        // Update message status to 'sent'
-        await minimaService.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
+        // Update message status to 'sent' and timestamp to blockchain confirmation time
+        // Use blockchain timestamp if available, otherwise fall back to current time
+        const confirmationTime = blockchainTimestamp || Date.now();
+        console.log(`🕐 [TxPolling] Using confirmation timestamp: ${confirmationTime} (blockchain: ${!!blockchainTimestamp})`);
+        await minimaService.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent', confirmationTime);
 
         // Parse metadata
         let metadata: any = {};
@@ -205,81 +183,7 @@ class TransactionPollingService {
         this.notifyCallbacks(txpowid, 'rejected', transaction);
     }
 
-    private async checkPendingCommand(pendinguid: string, transaction: any) {
-        // 1. Check if it's still in pending list
-        const pendingCommands = await this.getPendingCommands();
-        const found = pendingCommands.find((cmd: any) => cmd.uid === pendinguid);
-
-        if (found) {
-            console.log(`⏳ [TxPolling] Command ${pendinguid} is still pending approval`);
-            return; // Still pending
-        }
-
-        // 2. If not found, it has been either approved or rejected
-        console.log(`✅ [TxPolling] Command ${pendinguid} no longer pending - assuming approved!`);
-
-        const { PUBLICKEY, MESSAGE_TIMESTAMP, TYPE, METADATA } = transaction;
-
-        // Parse metadata
-        let metadata: any = {};
-        try {
-            metadata = JSON.parse(METADATA || '{}');
-        } catch (e) {
-            console.error('Error parsing metadata:', e);
-        }
-
-        // Mark transaction as confirmed (we'll assume it was approved)
-        await minimaService.updateTransactionStatusByPendingUid(pendinguid, 'confirmed');
-
-        // Update message status to 'sent'
-        await minimaService.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
-
-        // Send Maxima notification
-        if (TYPE === 'charm') {
-            const { charmId, amount, username } = metadata;
-            console.log(`📤 [TxPolling] Sending charm message via Maxima...`);
-            await minimaService.sendMessage(
-                PUBLICKEY,
-                username || 'Unknown',
-                charmId,
-                'charm',
-                '',
-                amount || 0,
-                MESSAGE_TIMESTAMP
-            );
-        } else if (TYPE === 'token') {
-            const { amount, tokenName, username } = metadata;
-            const tokenData = JSON.stringify({ amount, tokenName });
-            console.log(`📤 [TxPolling] Sending token message via Maxima...`);
-            await minimaService.sendMessage(
-                PUBLICKEY,
-                username || 'Unknown',
-                tokenData,
-                'token',
-                '',
-                0,
-                MESSAGE_TIMESTAMP
-            );
-        }
-
-        // Notify subscribers
-        this.notifyCallbacks(pendinguid, 'confirmed', transaction);
-    }
-
-    private async getPendingCommands(): Promise<any[]> {
-        return new Promise((resolve, reject) => {
-            MDS.executeRaw("pending", (res: any) => {
-                if (res.status && res.response) {
-                    resolve(res.response);
-                } else {
-                    console.error("❌ [TxPolling] Failed to get pending commands:", res);
-                    // If we can't get pending commands, we shouldn't assume there are none.
-                    // Rejecting here prevents checkPendingCommand from falsely assuming approval.
-                    reject(new Error("Failed to fetch pending commands"));
-                }
-            });
-        });
-    }
+    // Removed checkPendingCommand and getPendingCommands as they rely on 'pending' command
 
     /**
      * Notify all subscribers of a status change

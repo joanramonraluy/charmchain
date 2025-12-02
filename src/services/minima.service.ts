@@ -57,68 +57,60 @@ class MinimaService {
     /* ----------------------------------------------------------------------------
       DATABASE
     ---------------------------------------------------------------------------- */
-    initDB() {
-        const initsql = "CREATE TABLE IF NOT EXISTS CHAT_MESSAGES ( "
-            + "  id BIGINT AUTO_INCREMENT PRIMARY KEY, "
-            + "  roomname VARCHAR(160) NOT NULL, "
-            + "  publickey VARCHAR(512) NOT NULL, "
-            + "  username VARCHAR(160) NOT NULL, "
-            + "  type VARCHAR(64) NOT NULL, "
-            + "  message VARCHAR(512) NOT NULL, "
-            + "  filedata CLOB NOT NULL, "
-            + "  customid VARCHAR(128) NOT NULL DEFAULT '0x00', "
-            + "  state VARCHAR(128) NOT NULL DEFAULT '', "
-            + "  read INT NOT NULL DEFAULT 0, "
-            + "  amount INT NOT NULL DEFAULT 0, "
-            + "  date BIGINT NOT NULL "
-            + " )";
+    /**
+     * Initialize the database tables
+     */
+    async initDB(): Promise<void> {
+        return new Promise((resolve) => {
+            const createMessagesTable = `
+            CREATE TABLE IF NOT EXISTS CHAT_MESSAGES (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                roomname VARCHAR(255) NOT NULL,
+                publickey VARCHAR(512) NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                type VARCHAR(32) NOT NULL,
+                message TEXT,
+                filedata TEXT,
+                state VARCHAR(32) DEFAULT 'delivered',
+                amount DECIMAL(30,8) DEFAULT 0,
+                date BIGINT NOT NULL
+            )`;
 
-        MDS.sql(initsql, (res: any) => {
-            if (!res.status) {
-                console.error("❌ [DB] Failed to create CHAT_MESSAGES table:", res.error);
-            } else {
-                console.log("✅ [DB] CHAT_MESSAGES table initialized");
-                // Add amount column to existing tables if it doesn't exist
-                const alterSql = "ALTER TABLE CHAT_MESSAGES ADD COLUMN IF NOT EXISTS amount INT NOT NULL DEFAULT 0";
-                MDS.sql(alterSql, (alterRes: any) => {
-                    if (!alterRes.status) {
-                        console.warn("⚠️ [DB] Could not add amount column (may already exist):", alterRes.error);
-                    } else {
-                        console.log("✅ [DB] Amount column added/verified");
-                    }
-                });
-            }
-        });
+            MDS.sql(createMessagesTable, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [DB] Failed to create CHAT_MESSAGES table:", res.error);
+                } else {
+                    console.log("✅ [DB] CHAT_MESSAGES table initialized");
+                }
+            });
 
-        // Create CHAT_STATUS table if not exists
-        const createStatusTable = `
+            const createStatusTable = `
             CREATE TABLE IF NOT EXISTS CHAT_STATUS (
                 publickey VARCHAR(512) PRIMARY KEY,
-                archived BOOLEAN NOT NULL DEFAULT FALSE,
-                archived_date BIGINT,
-                last_opened BIGINT,
+                last_read BIGINT DEFAULT 0,
+                unread_count INT DEFAULT 0,
                 app_installed BOOLEAN DEFAULT FALSE
             )`;
 
-        MDS.sql(createStatusTable, (res: any) => {
-            if (!res.status) {
-                console.error("❌ [DB] Failed to create CHAT_STATUS table:", res.error);
-            } else {
-                console.log("✅ [DB] CHAT_STATUS table initialized");
-                // Add app_installed column if it doesn't exist (migration)
-                const alterSql = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS app_installed BOOLEAN DEFAULT FALSE";
-                MDS.sql(alterSql, (alterRes: any) => {
-                    if (!alterRes.status) {
-                        console.warn("⚠️ [DB] Could not add app_installed column (may already exist):", alterRes.error);
-                    } else {
-                        console.log("✅ [DB] app_installed column added/verified");
-                    }
-                });
-            }
-        });
+            MDS.sql(createStatusTable, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [DB] Failed to create CHAT_STATUS table:", res.error);
+                } else {
+                    console.log("✅ [DB] CHAT_STATUS table initialized");
+                    // Add app_installed column if it doesn't exist (migration)
+                    const alterSql = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS app_installed BOOLEAN DEFAULT FALSE";
+                    MDS.sql(alterSql, (alterRes: any) => {
+                        if (!alterRes.status) {
+                            // console.warn("⚠️ [DB] Could not add app_installed column (may already exist):", alterRes.error);
+                        } else {
+                            console.log("✅ [DB] app_installed column added/verified");
+                        }
+                    });
+                }
+            });
 
-        // Create TRANSACTIONS table for tracking transaction status
-        const createTransactionsTable = `
+            // Create TRANSACTIONS table for tracking transaction status
+            const createTransactionsTable = `
             CREATE TABLE IF NOT EXISTS TRANSACTIONS (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 txpowid VARCHAR(256) UNIQUE,
@@ -132,33 +124,27 @@ class MinimaService {
                 pendinguid VARCHAR(128)
             )`;
 
-        MDS.sql(createTransactionsTable, (res: any) => {
-            if (!res.status) {
-                console.error("❌ [DB] Failed to create TRANSACTIONS table:", res.error);
-            } else {
-                console.log("✅ [DB] TRANSACTIONS table initialized");
+            MDS.sql(createTransactionsTable, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [DB] Failed to create TRANSACTIONS table:", res.error);
+                    resolve();
+                } else {
+                    console.log("✅ [DB] TRANSACTIONS table initialized");
 
-                // Migration 1: Add pendinguid column if it doesn't exist
-                const alterSql1 = "ALTER TABLE TRANSACTIONS ADD COLUMN IF NOT EXISTS pendinguid VARCHAR(128)";
-                MDS.sql(alterSql1, (alterRes: any) => {
-                    if (!alterRes.status) {
-                        console.warn("⚠️ [DB] Could not add pendinguid column (may already exist):", alterRes.error);
-                    } else {
-                        console.log("✅ [DB] pendinguid column added/verified");
-                    }
-                });
+                    // Migration 1: Add pendinguid column if it doesn't exist
+                    const alterSql1 = "ALTER TABLE TRANSACTIONS ADD COLUMN IF NOT EXISTS pendinguid VARCHAR(128)";
+                    MDS.sql(alterSql1, (alterRes: any) => {
+                        if (!alterRes.status) {
+                            // console.warn("⚠️ [DB] Could not add pendinguid column (may already exist):", alterRes.error);
+                        } else {
+                            console.log("✅ [DB] pendinguid column added/verified");
+                        }
 
-                // Migration 2: Allow NULL for txpowid (for pending commands)
-                // H2 syntax: ALTER TABLE tableName ALTER COLUMN columnName SET NULL
-                const alterSql2 = "ALTER TABLE TRANSACTIONS ALTER COLUMN txpowid SET NULL";
-                MDS.sql(alterSql2, (alterRes: any) => {
-                    if (!alterRes.status) {
-                        console.warn("⚠️ [DB] Could not alter txpowid to allow NULL:", alterRes.error);
-                    } else {
-                        console.log("✅ [DB] txpowid column altered to allow NULL");
-                    }
-                });
-            }
+                        // Resolve after the most critical table is ready
+                        resolve();
+                    });
+                }
+            });
         });
     }
 
@@ -406,118 +392,11 @@ class MinimaService {
         try {
             console.log('💰 [NEWBALANCE] Balance changed - checking for confirmed transactions...');
 
-            // Get recent transactions to find the one that triggered NEWBALANCE
-            const recentTxs: any = await new Promise((resolve) => {
-                MDS.executeRaw("txpowlist", (res: any) => {
-                    resolve(res);
-                });
-            });
+            // Instead of trying to find the specific transaction that triggered this (which is flaky with txpowlist),
+            // we simply run the cleanup logic which checks ALL pending transactions against the blockchain history.
+            // This is more robust and handles both "app closed" and "live update" scenarios uniformly.
+            await this.cleanupOrphanedPendingTransactions();
 
-            if (!recentTxs.status || !recentTxs.response) {
-                console.log("⚠️ [NEWBALANCE] Could not fetch recent transactions");
-                return;
-            }
-
-            const txList = recentTxs.response;
-            if (!txList || txList.length === 0) {
-                return;
-            }
-
-            // Check the most recent transaction
-            const latestTx = txList[0];
-            const txpowid = latestTx.txpowid;
-
-            console.log(`🔍 [NEWBALANCE] Latest transaction: ${txpowid}`);
-
-            // Get full transaction details
-            const txDetails: any = await new Promise((resolve) => {
-                MDS.executeRaw(`txpow txpowid:${txpowid}`, (res: any) => {
-                    resolve(res);
-                });
-            });
-
-            if (!txDetails.status || !txDetails.response) {
-                return;
-            }
-
-            const tx = txDetails.response;
-
-            // Extract state variables to identify our transaction
-            if (!tx.body || !tx.body.txn) {
-                return;
-            }
-
-            const txn = tx.body.txn;
-            const state = txn.state;
-
-            // Check if this transaction has our CharmChain identifier
-            if (state && state.length >= 2) {
-                const stateId = state[0]?.data;  // Our unique timestamp ID
-                const charmChainId = state[1]?.data;  // Should be 204 (0xCC)
-
-                console.log(`🔍 [NEWBALANCE] State variables: stateId=${stateId}, charmChainId=${charmChainId}`);
-
-                // Verify this is a CharmChain transaction
-                if (charmChainId === '204' && stateId) {
-                    console.log(`✅ [NEWBALANCE] CharmChain transaction detected with stateId: ${stateId}`);
-
-                    // Find pending transaction by stateId (which is the MESSAGE_TIMESTAMP)
-                    const pendingTx = await this.findPendingTransactionByStateId(stateId);
-
-                    if (pendingTx) {
-                        console.log(`✅ [NEWBALANCE] Found matching pending transaction!`);
-
-                        // Update transaction with txpowid
-                        if (pendingTx.PENDINGUID) {
-                            await this.updateTransactionTxpowid(pendingTx.PENDINGUID, txpowid);
-                        }
-
-                        // Update transaction status to confirmed
-                        await this.updateTransactionStatus(txpowid, 'confirmed');
-
-                        // Update message state to 'sent'
-                        await this.updateMessageState(
-                            pendingTx.PUBLICKEY,
-                            pendingTx.MESSAGE_TIMESTAMP,
-                            'sent'
-                        );
-
-                        // Send Maxima message
-                        const metadata = JSON.parse(pendingTx.METADATA || '{}');
-
-                        if (pendingTx.TYPE === 'charm') {
-                            const { charmId, username, amount } = metadata;
-                            console.log(`📤 [NEWBALANCE] Sending charm message via Maxima...`);
-                            await this.sendMessage(
-                                pendingTx.PUBLICKEY,
-                                username || 'Unknown',
-                                charmId,
-                                'charm',
-                                '',
-                                amount || 0,
-                                pendingTx.MESSAGE_TIMESTAMP
-                            );
-                        } else if (pendingTx.TYPE === 'token') {
-                            const { tokenName, username, amount } = metadata;
-                            const tokenData = JSON.stringify({ amount, tokenName });
-                            console.log(`📤 [NEWBALANCE] Sending token message via Maxima...`);
-                            await this.sendMessage(
-                                pendingTx.PUBLICKEY,
-                                username || 'Unknown',
-                                tokenData,
-                                'token',
-                                '',
-                                0,
-                                pendingTx.MESSAGE_TIMESTAMP
-                            );
-                        }
-
-                        console.log(`✅ [NEWBALANCE] Transaction ${txpowid} processed successfully`);
-                    } else {
-                        console.log(`⚠️ [NEWBALANCE] No pending transaction found for stateId: ${stateId}`);
-                    }
-                }
-            }
         } catch (err) {
             console.error('❌ [NEWBALANCE] Error handling balance change:', err);
         }
@@ -698,24 +577,36 @@ class MinimaService {
 
     async updateMessageState(publickey: string, timestamp: number, state: string, newTimestamp?: number) {
         console.log(`🔄 [updateMessageState] CALLED: publickey=${publickey.substring(0, 10)}..., timestamp=${timestamp}, newState="${state}", newTimestamp=${newTimestamp}`);
-        console.trace('Stack trace for updateMessageState');
+
+        // DEBUG: Check if the message exists with the given timestamp
+        const checkSql = `SELECT * FROM CHAT_MESSAGES WHERE publickey='${publickey}' AND date=${timestamp}`;
+        this.runSQL(checkSql).then(res => {
+            console.log(`🔍 [updateMessageState] Check before update: Found ${res.rows ? res.rows.length : 0} rows for timestamp ${timestamp}`);
+            if (res.rows && res.rows.length > 0) {
+                console.log(`   -> Row data: ID=${res.rows[0].ID}, STATE=${res.rows[0].STATE}, DATE=${res.rows[0].DATE}`);
+            } else {
+                console.warn(`⚠️ [updateMessageState] NO ROW FOUND for timestamp ${timestamp}! Update will fail to match.`);
+            }
+        });
 
         let setClause = `state='${state}'`;
         if (newTimestamp) {
-            setClause += `, date='${newTimestamp}'`;
+            // Remove quotes for numeric date field
+            setClause += `, date=${newTimestamp}`;
         }
 
+        // Remove quotes for numeric date field in WHERE clause
         const sql = `
             UPDATE CHAT_MESSAGES
             SET ${setClause}
-            WHERE publickey='${publickey}' AND date='${timestamp}'
+            WHERE publickey='${publickey}' AND date=${timestamp}
         `;
 
         console.log(`💾 [SQL] Updating message state to '${state}'${newTimestamp ? ` and date to ${newTimestamp}` : ''} for timestamp ${timestamp}`);
 
         try {
             const result = await this.runSQL(sql);
-            console.log(`✅[SQL] Message state updated: `, result);
+            console.log(`✅[SQL] Message state updated. Result:`, JSON.stringify(result));
             return result;
         } catch (err) {
             console.error("❌ [SQL] Error updating message state:", err);
@@ -805,82 +696,196 @@ class MinimaService {
         console.log('🧹 [Cleanup] Starting manual cleanup of orphaned transactions...');
 
         // Get all pending transactions from DB
+        // Get all pending transactions from DB
         const sql = "SELECT * FROM TRANSACTIONS WHERE status='pending'";
         const result = await this.runSQL(sql);
+        const pendingDbTxs = result.rows || [];
 
-        if (!result.rows || result.rows.length === 0) {
-            console.log('✅ [Cleanup] No pending transactions found');
-            return;
+        if (pendingDbTxs.length === 0) {
+            console.log('✅ [Cleanup] No pending transactions found in DB (proceeding to check for stuck messages)');
+        } else {
+            console.log(`🔍 [Cleanup] Found ${pendingDbTxs.length} pending transactions in DB`);
         }
 
-        console.log(`🔍 [Cleanup] Found ${result.rows.length} pending transactions in DB`);
+        // Get confirmed transaction history from blockchain
+        const confirmedTxs = await this.getMyTransactionHistory();
+        console.log(`🔍 [Cleanup] Found ${confirmedTxs.size} confirmed CharmChain transactions in blockchain`);
 
-        // Get actual pending commands from node
-        const pendingCommands: any = await new Promise((resolve) => {
-            MDS.executeRaw("pending", (res: any) => {
-                if (res.status && res.response) {
-                    resolve(res.response);
-                } else {
-                    resolve([]);
-                }
-            });
-        });
-
-        const nodePendingUids = new Set(pendingCommands.map((cmd: any) => cmd.uid));
-        console.log(`🔍 [Cleanup] Found ${nodePendingUids.size} pending commands in node`);
+        // Get pending transactions from mempool
+        const pendingTxs = await this.getMyPendingTransactions();
+        console.log(`🔍 [Cleanup] Found ${pendingTxs.size} pending CharmChain transactions in mempool`);
 
         let cleanedCount = 0;
 
         // Check each DB transaction
-        for (const tx of result.rows) {
-            const { PENDINGUID, TXPOWID, MESSAGE_TIMESTAMP, PUBLICKEY, CREATED_AT } = tx;
+        for (const tx of pendingDbTxs) {
+            const { MESSAGE_TIMESTAMP, TXPOWID, PENDINGUID, PUBLICKEY, CREATED_AT } = tx;
 
-            // Case 1: Has pendinguid but no txpowid (waiting for approval)
-            if (PENDINGUID && (!TXPOWID || TXPOWID === 'null')) {
-                // Check if this pendinguid exists in node
-                if (!nodePendingUids.has(PENDINGUID)) {
-                    const age = Date.now() - CREATED_AT;
-                    const ageMinutes = Math.floor(age / (1000 * 60));
+            // Check if this transaction is in the blockchain (confirmed)
+            const confirmedTxData = confirmedTxs.get(MESSAGE_TIMESTAMP.toString());
 
-                    console.log(`🗑️ [Cleanup] Orphaned pendinguid: ${PENDINGUID} (age: ${ageMinutes}m) - marking as failed`);
+            if (confirmedTxData) {
+                const { txpowid: confirmedTxpowid, timestamp: confirmedTimestamp } = confirmedTxData;
 
-                    await this.updateTransactionStatusByPendingUid(PENDINGUID, 'rejected');
-                    await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
-                    cleanedCount++;
-                    continue;
+                // Transaction is confirmed in blockchain!
+                console.log(`✅ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} confirmed as ${confirmedTxpowid} at ${confirmedTimestamp}`);
+
+                // Update txpowid if we only had pendinguid
+                if (!TXPOWID || TXPOWID === 'null') {
+                    await this.updateTransactionTxpowid(PENDINGUID, confirmedTxpowid);
                 }
+
+                // Mark as confirmed
+                await this.updateTransactionStatus(confirmedTxpowid, 'confirmed');
+
+                // Update message state to 'sent' AND update timestamp to blockchain confirmation time
+                await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent', confirmedTimestamp);
+
+                // Send Maxima notification (in case it wasn't sent yet)
+                const { TYPE, METADATA } = tx;
+                let metadata: any = {};
+                try {
+                    metadata = JSON.parse(METADATA || '{}');
+                } catch (e) {
+                    console.error('Error parsing metadata:', e);
+                }
+
+                if (TYPE === 'charm') {
+                    const { charmId, amount, username } = metadata;
+                    console.log(`📤 [Cleanup] Sending charm message via Maxima...`);
+                    await this.sendMessage(
+                        PUBLICKEY,
+                        username || 'Unknown',
+                        charmId,
+                        'charm',
+                        '',
+                        amount || 0,
+                        MESSAGE_TIMESTAMP
+                    );
+                } else if (TYPE === 'token') {
+                    const { amount, tokenName, username } = metadata;
+                    const tokenData = JSON.stringify({ amount, tokenName });
+                    console.log(`📤 [Cleanup] Sending token message via Maxima...`);
+                    await this.sendMessage(
+                        PUBLICKEY,
+                        username || 'Unknown',
+                        tokenData,
+                        'token',
+                        '',
+                        0,
+                        MESSAGE_TIMESTAMP
+                    );
+                }
+
+                cleanedCount++;
+                continue;
             }
 
-            // Case 2: Has txpowid (was approved, should check actual status)
-            if (TXPOWID && TXPOWID !== 'null') {
-                const actualStatus = await this.checkTransactionStatus(TXPOWID);
+            // Check if this transaction is pending in mempool
+            const pendingTxpowid = pendingTxs.get(MESSAGE_TIMESTAMP.toString());
 
-                if (actualStatus === 'confirmed') {
-                    console.log(`✅ [Cleanup] Transaction ${TXPOWID} is confirmed - updating to sent`);
+            if (pendingTxpowid) {
+                // Transaction is pending in mempool (mining)
+                console.log(`⏳ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} is pending in mempool as ${pendingTxpowid}`);
+
+                // Update txpowid if we only had pendinguid
+                if (!TXPOWID || TXPOWID === 'null') {
+                    await this.updateTransactionTxpowid(PENDINGUID, pendingTxpowid);
+                }
+
+                continue; // Keep as pending
+            }
+
+            // Not in blockchain and not in mempool - determine if failed or still waiting for approval
+            const age = Date.now() - CREATED_AT;
+            const ageMinutes = Math.floor(age / (1000 * 60));
+
+            // For transactions with PENDINGUID (waiting for user approval)
+            // These will be handled by the MDS_PENDING event when user accepts/denies
+            if (PENDINGUID && (!TXPOWID || TXPOWID === 'null')) {
+                console.log(`⏳ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} has PENDINGUID - will be handled by MDS_PENDING event`);
+                // Leave as pending - MDS_PENDING event will update when user accepts/denies
+                continue;
+            }
+            // For transactions with TXPOWID (already approved, check directly)
+            else if (TXPOWID && TXPOWID !== 'null') {
+                // Use direct lookup for efficiency
+                const txStatus = await this.checkTransactionByTxpowid(TXPOWID);
+
+                if (txStatus === 'confirmed') {
+                    console.log(`✅ [Cleanup] Transaction ${TXPOWID} confirmed via direct lookup`);
                     await this.updateTransactionStatus(TXPOWID, 'confirmed');
                     await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
                     cleanedCount++;
-                } else if (actualStatus === 'unknown') {
-                    const age = Date.now() - CREATED_AT;
-                    const ageMinutes = Math.floor(age / (1000 * 60));
-
-                    // If older than 1 hour and unknown, likely rejected
-                    if (age > 60 * 60 * 1000) {
-                        console.log(`🗑️ [Cleanup] Transaction ${TXPOWID} unknown and old (${ageMinutes}m) - marking as failed`);
+                } else if (txStatus === 'pending') {
+                    console.log(`⏳ [Cleanup] Transaction ${TXPOWID} still pending in mempool`);
+                    // Keep as pending
+                } else {
+                    // not_found - give it grace period before marking as failed
+                    if (age > 10 * 60 * 1000) {
+                        console.log(`🗑️ [Cleanup] Transaction ${TXPOWID} not found after ${ageMinutes}m - marking as failed`);
                         await this.updateTransactionStatus(TXPOWID, 'rejected');
                         await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
                         cleanedCount++;
+                    } else {
+                        console.log(`⏳ [Cleanup] Transaction ${TXPOWID} propagating (${ageMinutes}m)...`);
                     }
-                } else if (actualStatus === 'pending') {
-                    console.log(`⏳ [Cleanup] Transaction ${TXPOWID} still pending in mempool`);
+                }
+            }
+            // Transactions without PENDINGUID or TXPOWID are orphans - clean immediately
+            else {
+                console.log(`🗑️ [Cleanup] Orphan transaction ${MESSAGE_TIMESTAMP} with no tracking ID - marking as failed`);
+                await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
+                cleanedCount++;
+            }
+        }
+
+        console.log(`✅ [Cleanup] Processed ${cleanedCount} orphaned transactions from DB`);
+
+        // -------------------------------------------------------------------------
+        // SAFETY NET: Check for stuck messages in CHAT_MESSAGES
+        // (zombies with no transaction record, likely from before the token fix)
+        // -------------------------------------------------------------------------
+        const stuckMessagesSql = "SELECT * FROM CHAT_MESSAGES WHERE state='pending'";
+        const stuckMessages = await this.runSQL(stuckMessagesSql);
+
+        if (stuckMessages.rows && stuckMessages.rows.length > 0) {
+            console.log(`🧹 [Cleanup] Checking ${stuckMessages.rows.length} pending messages in CHAT_MESSAGES for zombies...`);
+
+            for (const msg of stuckMessages.rows) {
+                // Check if tracked in TRANSACTIONS
+                const isTrackedSql = `SELECT * FROM TRANSACTIONS WHERE message_timestamp=${msg.DATE}`;
+                const tracked = await this.runSQL(isTrackedSql);
+
+                if (tracked.rows.length === 0) {
+                    console.log(`⚠️ [Cleanup] Found untracked pending message: ${msg.DATE} (Amount: ${msg.AMOUNT})`);
+
+                    // Check blockchain history using the message timestamp
+                    const confirmedTxpowid = confirmedTxs.get(msg.DATE.toString());
+
+                    if (confirmedTxpowid) {
+                        console.log(`✅ [Cleanup] Recovered untracked transaction ${msg.DATE} -> ${confirmedTxpowid}`);
+                        await this.updateMessageState(msg.PUBLICKEY, msg.DATE, 'sent');
+
+                        // Optionally insert into TRANSACTIONS so it's tracked in the future
+                        // But since it's already confirmed, we might just leave it as is
+                    } else {
+                        // Check age
+                        const age = Date.now() - msg.DATE;
+                        const ageMinutes = Math.floor(age / (1000 * 60));
+
+                        if (age > 10 * 60 * 1000) { // 10 mins grace period
+                            console.log(`🗑️ [Cleanup] Untracked message ${msg.DATE} is old (${ageMinutes}m) and not in blockchain - marking failed`);
+                            await this.updateMessageState(msg.PUBLICKEY, msg.DATE, 'failed');
+                        } else {
+                            console.log(`⏳ [Cleanup] Untracked message ${msg.DATE} is recent (${ageMinutes}m) - giving it more time`);
+                        }
+                    }
                 }
             }
         }
 
-        console.log(`✅ [Cleanup] Complete. Cleaned ${cleanedCount} orphaned transaction(s)`);
-
-        // NOW: Cleanup stuck messages (messages that are pending but have no pending transaction)
-        await this.cleanupStuckMessages();
+        console.log(`✅ [Cleanup] Complete.`);
     }
 
     /**
@@ -966,8 +971,20 @@ class MinimaService {
         }
     }
 
-    async checkTransactionStatus(txpowid: string): Promise<'pending' | 'confirmed' | 'rejected' | 'unknown'> {
-        if (!txpowid || txpowid === 'null' || txpowid === 'undefined') return 'unknown';
+    async getTransactionByPendingUid(pendinguid: string): Promise<any | null> {
+        const sql = `SELECT * FROM TRANSACTIONS WHERE pendinguid='${pendinguid}'`;
+
+        try {
+            const res = await this.runSQL(sql);
+            return res.rows && res.rows.length > 0 ? res.rows[0] : null;
+        } catch (err) {
+            console.error(`❌ [TX] Failed to get transaction by pendinguid:`, err);
+            return null;
+        }
+    }
+
+    async checkTransactionStatus(txpowid: string): Promise<{ status: 'pending' | 'confirmed' | 'rejected' | 'unknown', timestamp?: number }> {
+        if (!txpowid || txpowid === 'null' || txpowid === 'undefined') return { status: 'unknown' };
 
         try {
             // Try to find the transaction using txpow command
@@ -984,20 +1001,235 @@ class MinimaService {
                 if (txpow) {
                     // Check if it's in a block (confirmed)
                     if (txpow.isblock || txpow.inblock) {
-                        return 'confirmed';
+                        // Get the blockchain timestamp from the txpow header
+                        const blockTimestamp = txpow.header?.timemilli;
+                        console.log(`✅ [TX] Transaction confirmed at blockchain time: ${blockTimestamp}`);
+                        return {
+                            status: 'confirmed',
+                            timestamp: blockTimestamp ? Number(blockTimestamp) : Date.now()
+                        };
                     }
                     // Transaction exists but not yet in a block
-                    return 'pending';
+                    return { status: 'pending' };
                 }
             }
 
             // Transaction not found - could be rejected or too old
             // However, we shouldn't be too hasty to call it 'unknown' or 'rejected' if it's just not found yet
             // But for now, 'unknown' is the safest fallback
-            return 'unknown';
+            return { status: 'unknown' };
         } catch (err) {
             console.error(`❌ [TX] Error checking transaction status for ${txpowid}:`, err);
-            return 'unknown';
+            return { status: 'unknown' };
+        }
+    }
+
+    /**
+     * Get transaction history from blockchain for CharmChain transactions
+     * Returns a map of MESSAGE_TIMESTAMP -> { txpowid, timestamp } for quick lookup
+     */
+    async getMyTransactionHistory(): Promise<Map<string, { txpowid: string, timestamp: number }>> {
+        try {
+            console.log('🔍 [TxHistory] Fetching transaction history from blockchain...');
+
+            // Get our Minima address
+            const addressResponse: any = await new Promise((resolve) => {
+                MDS.cmd.getaddress((res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!addressResponse.status || !addressResponse.response) {
+                console.error('❌ [TxHistory] Failed to get address');
+                return new Map();
+            }
+
+            const myAddress = addressResponse.response.miniaddress;
+            console.log(`🔍 [TxHistory] Querying txpows for address: ${myAddress}`);
+
+            // Query transactions for our address (last 100)
+            const txpowResponse: any = await new Promise((resolve) => {
+                MDS.executeRaw(`txpow address:${myAddress} max:100`, (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!txpowResponse.status || !txpowResponse.response) {
+                console.warn('⚠️ [TxHistory] No transaction history found');
+                return new Map();
+            }
+
+            // Build map of MESSAGE_TIMESTAMP -> { txpowid, timestamp } for CharmChain transactions
+            const historyMap = new Map<string, { txpowid: string, timestamp: number }>();
+            const txpows = Array.isArray(txpowResponse.response) ? txpowResponse.response : [txpowResponse.response];
+
+            for (const txpow of txpows) {
+                try {
+                    // Check if this is a CharmChain transaction
+                    const state = txpow.body?.txn?.state;
+
+                    if (state && Array.isArray(state) && state.length >= 2) {
+                        const charmChainId = state[1]?.data;
+
+                        // CharmChain identifier is 204 (0xCC)
+                        if (charmChainId === '204') {
+                            const stateId = state[0]?.data; // MESSAGE_TIMESTAMP
+                            const txpowid = txpow.txpowid;
+                            const timestamp = txpow.header?.timemilli ? Number(txpow.header.timemilli) : Date.now();
+
+                            if (stateId && txpowid) {
+                                historyMap.set(stateId, { txpowid, timestamp });
+                                console.log(`✅ [TxHistory] Found CharmChain tx: ${stateId} -> ${txpowid} (Time: ${timestamp})`);
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('❌ [TxHistory] Error parsing txpow:', err);
+                }
+            }
+
+            console.log(`✅ [TxHistory] Found ${historyMap.size} CharmChain transaction(s) in blockchain`);
+            return historyMap;
+
+        } catch (err) {
+            console.error('❌ [TxHistory] Error fetching transaction history:', err);
+            return new Map();
+        }
+    }
+
+    /**
+     * Get pending transactions from mempool (not yet in blockchain)
+     * Returns a map of MESSAGE_TIMESTAMP -> txpowid for quick lookup
+     */
+    async getMyPendingTransactions(): Promise<Map<string, string>> {
+        try {
+            console.log('🔍 [TxPending] Fetching pending transactions from mempool...');
+
+            // Get our Minima address
+            const addressResponse: any = await new Promise((resolve) => {
+                MDS.cmd.getaddress((res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!addressResponse.status || !addressResponse.response) {
+                console.error('❌ [TxPending] Failed to get address');
+                return new Map();
+            }
+
+            const myAddress = addressResponse.response.miniaddress;
+
+            // Query transactions for our address
+            const txpowResponse: any = await new Promise((resolve) => {
+                MDS.executeRaw(`txpow address:${myAddress} max:100`, (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!txpowResponse.status || !txpowResponse.response) {
+                console.warn('⚠️ [TxPending] No transactions found');
+                return new Map();
+            }
+
+            // Build map of MESSAGE_TIMESTAMP -> txpowid for PENDING CharmChain transactions
+            const pendingMap = new Map<string, string>();
+            const txpows = Array.isArray(txpowResponse.response) ? txpowResponse.response : [txpowResponse.response];
+
+            for (const txpow of txpows) {
+                try {
+                    // Check if this transaction is NOT yet in a block (pending in mempool)
+                    const isInBlock = txpow.isblock || txpow.inblock;
+
+                    if (!isInBlock) {
+                        // Check if this is a CharmChain transaction
+                        const state = txpow.body?.txn?.state;
+
+                        if (state && Array.isArray(state) && state.length >= 2) {
+                            const charmChainId = state[1]?.data;
+
+                            // CharmChain identifier is 204 (0xCC)
+                            if (charmChainId === '204') {
+                                const stateId = state[0]?.data; // MESSAGE_TIMESTAMP
+                                const txpowid = txpow.txpowid;
+
+                                if (stateId && txpowid) {
+                                    pendingMap.set(stateId, txpowid);
+                                    console.log(`⏳ [TxPending] Found pending CharmChain tx: ${stateId} -> ${txpowid}`);
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('❌ [TxPending] Error parsing txpow:', err);
+                }
+            }
+
+            console.log(`✅ [TxPending] Found ${pendingMap.size} pending CharmChain transaction(s) in mempool`);
+            return pendingMap;
+
+        } catch (err) {
+            console.error('❌ [TxPending] Error fetching pending transactions:', err);
+            return new Map();
+        }
+    }
+
+    /**
+     * Check if a specific transaction exists and get its status
+     * Returns: 'confirmed' | 'pending' | 'not_found'
+     */
+    async checkTransactionByTxpowid(txpowid: string): Promise<'confirmed' | 'pending' | 'not_found'> {
+        try {
+            const txpowResponse: any = await new Promise((resolve) => {
+                MDS.executeRaw(`txpow txpowid:${txpowid}`, (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!txpowResponse.status || !txpowResponse.response) {
+                return 'not_found';
+            }
+
+            const txpow = txpowResponse.response;
+            const isInBlock = txpow.isblock || txpow.inblock;
+
+            return isInBlock ? 'confirmed' : 'pending';
+
+        } catch (err) {
+            console.error(`❌ [TxCheck] Error checking txpowid ${txpowid}:`, err);
+            return 'not_found';
+        }
+    }
+
+    /**
+     * Get pending MDS actions (includes pending transactions waiting for approval)
+     * Returns a Set of pending UIDs
+     */
+    async getMDSPendingActions(): Promise<Set<string>> {
+        try {
+            const response: any = await new Promise((resolve) => {
+                MDS.executeRaw('mds action:pending', (res: any) => {
+                    resolve(res);
+                });
+            });
+
+            if (!response.status || !response.response || !response.response.pending) {
+                console.log('📋 [MDSPending] No pending actions found');
+                return new Set();
+            }
+
+            const pendingUids = new Set<string>();
+            for (const action of response.response.pending) {
+                if (action.uid) {
+                    pendingUids.add(action.uid);
+                }
+            }
+
+            console.log(`📋 [MDSPending] Found ${pendingUids.size} pending MDS action(s)`);
+            return pendingUids;
+
+        } catch (err) {
+            console.error('❌ [MDSPending] Error fetching pending actions:', err);
+            return new Set();
         }
     }
 
