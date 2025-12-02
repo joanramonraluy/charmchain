@@ -144,9 +144,12 @@ MDS.init(function (msg) {
                 // Get amount for charm messages (default to 0 for other types)
                 var amount = (maxjson.type === "charm" && maxjson.amount) ? maxjson.amount : 0;
 
+                // Use timestamp from sender if provided, otherwise use current time
+                var messageTimestamp = maxjson.timestamp || Date.now();
+
                 // Insert into the DB
                 var msgsql = "INSERT INTO CHAT_MESSAGES (roomname,publickey,username,type,message,filedata,amount,date) VALUES "
-                    + "('" + maxjson.username + "','" + pubkey + "','" + maxjson.username + "','" + maxjson.type + "','" + encoded + "','" + (maxjson.filedata || "") + "'," + amount + "," + Date.now() + ")";
+                    + "('" + maxjson.username + "','" + pubkey + "','" + maxjson.username + "','" + maxjson.type + "','" + encoded + "','" + (maxjson.filedata || "") + "'," + amount + "," + messageTimestamp + ")";
 
                 // Insert into DB
                 MDS.sql(msgsql, function (res) {

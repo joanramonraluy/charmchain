@@ -503,12 +503,16 @@ class MinimaService {
         existingTimestamp?: number  // If provided, we're updating an existing pending message
     ) {
         try {
+            // Determine the timestamp to use
+            const messageTimestamp = existingTimestamp || Date.now();
+
             // Create payload with message data only (application is specified in Maxima params)
             const payload: any = {
                 message,
                 type,
                 username,
-                filedata
+                filedata,
+                timestamp: messageTimestamp  // Include timestamp so recipient uses sender's time
             };
 
             // Include amount for charm messages
@@ -760,7 +764,7 @@ class MinimaService {
                         'charm',
                         '',
                         amount || 0,
-                        MESSAGE_TIMESTAMP
+                        confirmedTimestamp  // Use blockchain timestamp, not MESSAGE_TIMESTAMP
                     );
                 } else if (TYPE === 'token') {
                     const { amount, tokenName, username } = metadata;
@@ -773,7 +777,7 @@ class MinimaService {
                         'token',
                         '',
                         0,
-                        MESSAGE_TIMESTAMP
+                        confirmedTimestamp  // Use blockchain timestamp, not MESSAGE_TIMESTAMP
                     );
                 }
 
@@ -1668,8 +1672,13 @@ class MinimaService {
                 // Update transaction status to confirmed
                 await this.updateTransactionStatusByPendingUid(uid, 'confirmed');
 
-                // Update message state to 'sent'
-                await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
+                // Extract blockchain timestamp from the transaction response
+                const blockchainTimestamp = result.response?.header?.timemilli;
+                const confirmationTime = blockchainTimestamp ? Number(blockchainTimestamp) : Date.now();
+                console.log(`🕐 [MDS_PENDING] Transaction confirmed at blockchain time: ${confirmationTime} (from header: ${!!blockchainTimestamp})`);
+
+                // Update message state to 'sent' AND update timestamp to blockchain confirmation time
+                await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent', confirmationTime);
 
                 // Send Maxima message
                 const metadata = JSON.parse(METADATA || '{}');
@@ -1684,7 +1693,7 @@ class MinimaService {
                         'charm',
                         '',
                         amount || 0,
-                        MESSAGE_TIMESTAMP
+                        confirmationTime  // Use blockchain timestamp, not MESSAGE_TIMESTAMP
                     );
                 } else if (TYPE === 'token') {
                     const { tokenName, username, amount } = metadata;
@@ -1697,7 +1706,7 @@ class MinimaService {
                         'token',
                         '',
                         0,
-                        MESSAGE_TIMESTAMP
+                        confirmationTime  // Use blockchain timestamp, not MESSAGE_TIMESTAMP
                     );
                 }
 

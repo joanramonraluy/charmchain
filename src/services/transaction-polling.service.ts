@@ -148,7 +148,7 @@ class TransactionPollingService {
                 'charm',
                 '',
                 amount || 0,
-                MESSAGE_TIMESTAMP
+                confirmationTime  // Use blockchain timestamp, not MESSAGE_TIMESTAMP
             );
         } else if (TYPE === 'token') {
             const { amount, tokenName, username } = metadata;
@@ -161,7 +161,7 @@ class TransactionPollingService {
                 'token',
                 '',
                 0,
-                MESSAGE_TIMESTAMP
+                confirmationTime  // Use blockchain timestamp, not MESSAGE_TIMESTAMP
             );
         }
 
