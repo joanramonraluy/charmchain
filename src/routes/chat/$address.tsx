@@ -133,6 +133,17 @@ function ChatPage() {
     };
 
     checkArchiveStatus();
+
+    // Listen for archive status changes
+    const handleArchiveChange = () => {
+      checkArchiveStatus();
+    };
+
+    minimaService.onArchiveStatusChange(handleArchiveChange);
+
+    return () => {
+      minimaService.removeArchiveStatusCallback(handleArchiveChange);
+    };
   }, [contact]);
 
   /* ----------------------------------------------------------------------------
@@ -172,9 +183,11 @@ function ChatPage() {
           // Safer status parsing - do NOT default to 'sent' blindly
           let parsedStatus: any = row.STATE;
           if (!parsedStatus || parsedStatus === 'null' || parsedStatus === 'undefined') {
-            // If state is missing, default based on type
-            // Charms/Tokens should default to pending if unknown, Text defaults to sent (legacy)
-            parsedStatus = (isCharm || isToken) ? 'pending' : 'sent';
+            // If state is missing, default based on type AND sender
+            // Charms/Tokens should default to pending ONLY if sent by you (username === "Me")
+            // Received charms/tokens are already confirmed, so they should be 'sent'
+            const username = row.USERNAME;
+            parsedStatus = (isCharm || isToken) && username === "Me" ? 'pending' : 'sent';
           }
 
           const parsed = {
@@ -693,7 +706,7 @@ function ChatPage() {
                 <span className="font-medium">Chat Info</span>
               </button>
               <button
-                className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-gray-100 text-gray-300 md:text-gray-700 transition-colors text-left border-t border-gray-700 md:border-gray-200"
+                className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-blue-50 text-gray-300 md:text-[#0088cc] transition-colors text-left border-t border-gray-700 md:border-gray-200"
                 onClick={() => {
                   setShowMenu(false);
                   handleToggleArchive();

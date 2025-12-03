@@ -1,5 +1,5 @@
 import { Block, MDS, MinimaEvents } from "@minima-global/mds"
-import { createContext, useEffect, useRef, useState } from "react"
+import { createContext, useCallback, useEffect, useRef, useState } from "react"
 import { minimaService } from "./services/minima.service"
 
 
@@ -13,6 +13,7 @@ export const appContext = createContext<{
   userAvatar: string
   writeMode: boolean
   updateUserProfile: (name: string, avatar: string) => void
+  refreshWriteMode: () => Promise<void>
 }>({
   loaded: false,
   synced: false,
@@ -20,7 +21,8 @@ export const appContext = createContext<{
   userName: "User",
   userAvatar: defaultAvatar,
   writeMode: false,
-  updateUserProfile: () => { }
+  updateUserProfile: () => { },
+  refreshWriteMode: async () => { }
 })
 
 const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
@@ -60,6 +62,34 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     setUserName(name)
     setUserAvatar(avatar)
   }
+
+  // Function to refresh write mode (called from Settings)
+  const refreshWriteMode = useCallback(async (): Promise<void> => {
+    return new Promise((resolve) => {
+      console.log("🔄 [AppContext] Refreshing write mode...");
+      (MDS as any).executeRaw("mds", (res: any) => {
+        console.log("📝 [AppContext] 'mds' command response:", res);
+        if (res.status && res.response && res.response.minidapps) {
+          const myDapp = res.response.minidapps.find((d: any) => d.conf?.name === "CharmChain");
+          if (myDapp) {
+            const perm = myDapp.conf.permission;
+            console.log(`📝 [AppContext] Found CharmChain permission: ${perm}`);
+
+            if (perm === "write") {
+              setWriteMode(true);
+              console.log("✅ [AppContext] Write Mode ENABLED");
+            } else {
+              setWriteMode(false);
+              console.log("⚠️ [AppContext] Read Mode ACTIVE");
+            }
+          } else {
+            console.warn("⚠️ [AppContext] Could not find 'CharmChain' in minidapps list");
+          }
+        }
+        resolve();
+      });
+    });
+  }, []); // Empty dependency array since it only depends on setWriteMode which is stable
 
   useEffect(() => {
     if (!initialised.current) {
@@ -165,6 +195,7 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     userAvatar,
     writeMode,
     updateUserProfile,
+    refreshWriteMode,
   }
 
   return <appContext.Provider value={context}>{children}</appContext.Provider>

@@ -5,6 +5,7 @@ import { appContext } from "../../AppContext";
 import { minimaService } from "../../services/minima.service";
 import { MDS } from "@minima-global/mds";
 import { useNavigate } from "@tanstack/react-router";
+import { Archive } from "lucide-react";
 
 interface Contact {
     currentaddress: string;
@@ -28,6 +29,7 @@ interface ChatItem {
     username: string;
     archived?: boolean;
     lastOpened?: number | null;
+    unreadCount?: number;
 }
 
 export default function ChatList() {
@@ -36,9 +38,17 @@ export default function ChatList() {
     const [contacts, setContacts] = useState<Map<string, Contact>>(new Map());
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
-    const [swipedChat, setSwipedChat] = useState<string | null>(null);
-    const [hoveredChat, setHoveredChat] = useState<string | null>(null);
+
+    const [activeTab, setActiveTab] = useState<'chats' | 'archived'>('chats');
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, publickey: string, archived: boolean } | null>(null);
     const navigate = useNavigate();
+
+    // Close context menu on click outside
+    useEffect(() => {
+        const handleClick = () => setContextMenu(null);
+        document.addEventListener('click', handleClick);
+        return () => document.removeEventListener('click', handleClick);
+    }, []);
 
     const fetchChats = async () => {
         try {
@@ -89,33 +99,41 @@ export default function ChatList() {
             fetchChats();
         };
 
+        // Listen for mute status changes to refresh the chat list
+        const handleMuteStatusChange = () => {
+            console.log('🔄 [ChatList] Mute status changed, refreshing chat list');
+            fetchChats();
+        };
+
+        // Listen for archive status changes to refresh the chat list
+        const handleArchiveStatusChange = () => {
+            console.log('🔄 [ChatList] Archive status changed, refreshing chat list');
+            fetchChats();
+        };
+
         minimaService.onNewMessage(handleNewMessage);
+        minimaService.onMuteStatusChange(handleMuteStatusChange);
+        minimaService.onArchiveStatusChange(handleArchiveStatusChange);
 
         return () => {
             isMounted = false;
             minimaService.removeNewMessageCallback(handleNewMessage);
+            minimaService.removeMuteStatusCallback(handleMuteStatusChange);
+            minimaService.removeArchiveStatusCallback(handleArchiveStatusChange);
         };
     }, [loaded]);
 
+
+
     const handleArchive = async (publickey: string, e: React.MouseEvent) => {
         e.stopPropagation();
+        e.preventDefault(); // Prevent default context menu if triggered by right click
+
         try {
             await minimaService.archiveChat(publickey);
-            await fetchChats();
-            setSwipedChat(null);
+            // No need to fetchChats here as the listener will do it
         } catch (err) {
             console.error("Error archiving chat:", err);
-        }
-    };
-
-    const handleUnarchive = async (publickey: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        try {
-            await minimaService.unarchiveChat(publickey);
-            await fetchChats();
-            setSwipedChat(null);
-        } catch (err) {
-            console.error("Error unarchiving chat:", err);
         }
     };
 
@@ -199,21 +217,97 @@ export default function ChatList() {
     };
 
     const isNewChat = (chat: ChatItem) => {
-        return !chat.lastOpened;
+        // Consider it "new" if there are unread messages
+        // OR if it's never been opened (though unreadCount should cover this if there are messages)
+        return (chat.unreadCount || 0) > 0 || !chat.lastOpened;
     };
 
     // Separate archived and active chats
     const activeChats = chats.filter(c => !c.archived);
     const archivedChats = chats.filter(c => c.archived);
 
+    // Get chats to display based on active tab
+    const displayedChats = activeTab === 'chats' ? activeChats : archivedChats;
+
+
+
+    const handleUnarchive = async (publickey: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        try {
+            await minimaService.unarchiveChat(publickey);
+        } catch (err) {
+            console.error("Error unarchiving chat:", err);
+        }
+    };
+
+    const handleContextMenu = (e: React.MouseEvent, publickey: string, archived?: boolean) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, publickey, archived: !!archived });
+    };
+
     return (
-        <div className="h-screen flex flex-col bg-gray-50">
+        <div className="h-screen flex flex-col bg-gray-50 relative">
+            {/* Context Menu */}
+            {contextMenu && (
+                <div
+                    className="fixed bg-white shadow-lg rounded-lg py-1 z-50 min-w-[160px] border border-gray-200"
+                    style={{ top: contextMenu.y, left: contextMenu.x }}
+                >
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 flex items-center gap-2"
+                        onClick={(e) => {
+                            if (contextMenu.archived) {
+                                handleUnarchive(contextMenu.publickey, e);
+                            } else {
+                                handleArchive(contextMenu.publickey, e);
+                            }
+                            setContextMenu(null);
+                        }}
+                    >
+                        <Archive size={16} />
+                        {contextMenu.archived ? "Unarchive Chat" : "Archive Chat"}
+                    </button>
+                </div>
+            )}
+
+            {/* Tabs */}
+            <div className="bg-white border-b border-gray-200 flex-shrink-0">
+                <div className="flex">
+                    <button
+                        onClick={() => setActiveTab('chats')}
+                        className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${activeTab === 'chats'
+                            ? 'text-[#0088cc]'
+                            : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                    >
+                        Chats {activeChats.length > 0 && `(${activeChats.length})`}
+                        {activeTab === 'chats' && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0088cc]"></div>
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('archived')}
+                        className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${activeTab === 'archived'
+                            ? 'text-[#0088cc]'
+                            : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                    >
+                        Archived {archivedChats.length > 0 && `(${archivedChats.length})`}
+                        {activeTab === 'archived' && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0088cc]"></div>
+                        )}
+                    </button>
+                </div>
+            </div>
+
             {/* Chat List */}
             <div className="flex-1 overflow-y-auto p-3">
-                {chats.length > 0 ? (
+                {displayedChats.length > 0 ? (
                     <div className="space-y-2">
-                        {/* Active Chats */}
-                        {activeChats.map((chat, i) => (
+                        {displayedChats.map((chat, i) => (
                             <div
                                 key={i}
                                 onClick={() =>
@@ -224,40 +318,64 @@ export default function ChatList() {
                                         },
                                     })
                                 }
+                                onContextMenu={(e) => handleContextMenu(e, chat.publickey, chat.archived)}
                                 className={`relative rounded-lg shadow-sm border p-3 hover:shadow-md cursor-pointer transition-all active:bg-gray-50 ${isNewChat(chat)
                                     ? 'bg-blue-50 border-l-4 border-blue-500'
                                     : 'bg-white border-gray-200'
                                     }`}
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    setSwipedChat(swipedChat === chat.publickey ? null : chat.publickey);
-                                }}
-                                onMouseEnter={() => setHoveredChat(chat.publickey)}
-                                onMouseLeave={() => setHoveredChat(null)}
+
                             >
                                 <div className="flex items-center gap-3">
                                     {/* Avatar */}
-                                    <img
-                                        src={getAvatar(chat.publickey)}
-                                        alt={getName(chat)}
-                                        className="w-12 h-12 rounded-full object-cover bg-gray-200 flex-shrink-0"
-                                        onError={(e: any) => {
-                                            e.target.src = defaultAvatar;
-                                        }}
-                                    />
+                                    <div className="relative flex-shrink-0">
+                                        <img
+                                            src={getAvatar(chat.publickey)}
+                                            alt={getName(chat)}
+                                            className="w-12 h-12 rounded-full object-cover bg-gray-200"
+                                            onError={(e: any) => {
+                                                e.target.src = defaultAvatar;
+                                            }}
+                                        />
+                                        {chat.archived && (
+                                            <div className="absolute -top-1 -right-1 bg-gray-100 rounded-full p-0.5 border border-white shadow-sm">
+                                                <Archive size={12} className="text-gray-500" />
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {/* Chat Info */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-baseline justify-between gap-2">
                                             <h3 className="font-semibold text-gray-900 truncate">
                                                 {getName(chat)}
-                                                {isNewChat(chat) && (
+                                                {(chat.unreadCount || 0) > 0 && (
+                                                    <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">
+                                                        {chat.unreadCount}
+                                                    </span>
+                                                )}
+                                                {/* Fallback for completely new chats with no messages yet (rare but possible if logic differs) */}
+                                                {!chat.lastOpened && (chat.unreadCount || 0) === 0 && (
                                                     <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">NEW</span>
                                                 )}
                                             </h3>
-                                            <span className="text-xs text-gray-500 flex-shrink-0">
-                                                {formatTime(chat.lastMessageDate)}
-                                            </span>
+
+                                            {/* Time or Quick Archive Action */}
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-gray-500 flex-shrink-0">
+                                                    {formatTime(chat.lastMessageDate)}
+                                                </span>
+
+                                                {/* Quick Archive for New Chats */}
+                                                {isNewChat(chat) && !chat.archived && (
+                                                    <button
+                                                        onClick={(e) => handleArchive(chat.publickey, e)}
+                                                        className="p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors"
+                                                        title="Archive Chat"
+                                                    >
+                                                        <Archive size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                         <p className="text-sm text-gray-600 truncate mt-0.5">
                                             {chat.username === "Me" && (
@@ -267,107 +385,7 @@ export default function ChatList() {
                                         </p>
                                     </div>
 
-                                    {/* Archive button - shows on hover (desktop) or right-click (mobile) */}
-                                    {(hoveredChat === chat.publickey || swipedChat === chat.publickey) && (
-                                        <button
-                                            onClick={(e) => handleArchive(chat.publickey, e)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors hidden md:flex items-center gap-1"
-                                        >
-                                            📦 Archive
-                                        </button>
-                                    )}
-                                    {/* Mobile only - show on swipe/right-click */}
-                                    {swipedChat === chat.publickey && (
-                                        <button
-                                            onClick={(e) => handleArchive(chat.publickey, e)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors md:hidden"
-                                        >
-                                            📦 Archive
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
 
-                        {/* Separator if there are archived chats */}
-                        {archivedChats.length > 0 && (
-                            <div className="flex items-center gap-2 my-4">
-                                <div className="flex-1 h-px bg-gray-300"></div>
-                                <span className="text-xs text-gray-500 font-medium uppercase">Archived</span>
-                                <div className="flex-1 h-px bg-gray-300"></div>
-                            </div>
-                        )}
-
-                        {/* Archived Chats */}
-                        {archivedChats.map((chat, i) => (
-                            <div
-                                key={`archived-${i}`}
-                                onClick={() =>
-                                    navigate({
-                                        to: "/chat/$address",
-                                        params: {
-                                            address: chat.publickey,
-                                        },
-                                    })
-                                }
-                                className="relative bg-gray-100 opacity-75 rounded-lg shadow-sm border border-l-4 border-gray-400 p-3 hover:opacity-90 cursor-pointer transition-all"
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    setSwipedChat(swipedChat === chat.publickey ? null : chat.publickey);
-                                }}
-                                onMouseEnter={() => setHoveredChat(chat.publickey)}
-                                onMouseLeave={() => setHoveredChat(null)}
-                            >
-                                <div className="flex items-center gap-3">
-                                    {/* Archive Icon */}
-                                    <div className="text-2xl flex-shrink-0">📦</div>
-
-                                    {/* Avatar */}
-                                    <img
-                                        src={getAvatar(chat.publickey)}
-                                        alt={getName(chat)}
-                                        className="w-12 h-12 rounded-full object-cover bg-gray-200 flex-shrink-0"
-                                        onError={(e: any) => {
-                                            e.target.src = defaultAvatar;
-                                        }}
-                                    />
-
-                                    {/* Chat Info */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-baseline justify-between gap-2">
-                                            <h3 className="font-semibold text-gray-700 truncate">
-                                                {getName(chat)}
-                                            </h3>
-                                            <span className="text-xs text-gray-500 flex-shrink-0">
-                                                {formatTime(chat.lastMessageDate)}
-                                            </span>
-                                        </div>
-                                        <p className="text-sm text-gray-500 truncate mt-0.5">
-                                            {chat.username === "Me" && (
-                                                <span className="text-gray-600 mr-1">You:</span>
-                                            )}
-                                            {getLastMessagePreview(chat)}
-                                        </p>
-                                    </div>
-
-                                    {/* Unarchive button - shows on hover (desktop) or right-click (mobile) */}
-                                    {(hoveredChat === chat.publickey || swipedChat === chat.publickey) && (
-                                        <button
-                                            onClick={(e) => handleUnarchive(chat.publickey, e)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors hidden md:flex items-center gap-1"
-                                        >
-                                            📂 Unarchive
-                                        </button>
-                                    )}
-                                    {/* Mobile only - show on swipe/right-click */}
-                                    {swipedChat === chat.publickey && (
-                                        <button
-                                            onClick={(e) => handleUnarchive(chat.publickey, e)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors md:hidden"
-                                        >
-                                            📂 Unarchive
-                                        </button>
-                                    )}
                                 </div>
                             </div>
                         ))}

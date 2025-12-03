@@ -4,7 +4,8 @@ import { useContext, useEffect, useState } from "react";
 import { appContext } from "../../AppContext";
 import { MDS } from "@minima-global/mds";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { Plus, VolumeX } from "lucide-react";
+import { minimaService } from "../../services/minima.service";
 
 interface Contact {
   currentaddress: string;
@@ -16,6 +17,7 @@ interface Contact {
   };
   samechain?: boolean;
   lastseen?: number;
+  muted?: boolean;
 }
 
 export default function CheckContacts() {
@@ -44,7 +46,16 @@ export default function CheckContacts() {
         list = res;
       }
 
-      setContacts(list);
+      // Enrich contacts with mute status
+      const enrichedList = await Promise.all(list.map(async (c) => {
+        if (c.publickey) {
+          const isMuted = await minimaService.isContactMuted(c.publickey);
+          return { ...c, muted: isMuted };
+        }
+        return c;
+      }));
+
+      setContacts(enrichedList);
     } catch (err: any) {
       console.error("🚨 Error fetching contacts:", err);
       setError(err.message || "Unknown error");
@@ -237,6 +248,11 @@ export default function CheckContacts() {
                       />
                       {c.samechain && (
                         <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
+                      )}
+                      {c.muted && (
+                        <div className="absolute -top-1 -right-1 bg-orange-100 rounded-full p-0.5 border border-white shadow-sm">
+                          <VolumeX size={12} className="text-orange-500" />
+                        </div>
                       )}
                     </div>
 

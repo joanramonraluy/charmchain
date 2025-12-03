@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MDS } from "@minima-global/mds";
-import { ArrowLeft, Copy, Check, Shield, Trash2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Copy, Check, Trash2, RefreshCw } from "lucide-react";
 import { minimaService } from "../services/minima.service";
 
 export const Route = createFileRoute("/contact-info/$address")({
@@ -30,6 +30,7 @@ function ContactInfoPage() {
     const [loading, setLoading] = useState(true);
     const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [isArchived, setIsArchived] = useState(false);
 
     const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
 
@@ -72,6 +73,29 @@ function ContactInfoPage() {
 
         fetchContact();
     }, [address]);
+
+    // Check if chat is archived
+    useEffect(() => {
+        if (!contact?.publickey) return;
+
+        const checkStatus = async () => {
+            const status = await minimaService.getChatStatus(contact.publickey);
+            setIsArchived(status.archived);
+        };
+
+        checkStatus();
+
+        // Listen for archive status changes
+        const handleArchiveChange = () => {
+            checkStatus();
+        };
+
+        minimaService.onArchiveStatusChange(handleArchiveChange);
+
+        return () => {
+            minimaService.removeArchiveStatusCallback(handleArchiveChange);
+        };
+    }, [contact]);
 
     // Check app status when contact is loaded
     useEffect(() => {
@@ -124,6 +148,25 @@ function ContactInfoPage() {
         } catch (err) {
             console.error("❌ Failed to delete chat:", err);
             alert("Failed to delete chat. Please try again.");
+        }
+    };
+
+    const handleToggleArchive = async () => {
+        if (!contact?.publickey) return;
+
+        try {
+            if (isArchived) {
+                await minimaService.unarchiveChat(contact.publickey);
+                setIsArchived(false);
+                console.log("✅ Chat unarchived");
+            } else {
+                await minimaService.archiveChat(contact.publickey);
+                setIsArchived(true);
+                console.log("✅ Chat archived");
+            }
+        } catch (err) {
+            console.error("❌ Failed to toggle archive:", err);
+            alert("Failed to update archive status. Please try again.");
         }
     };
 
@@ -300,9 +343,28 @@ function ContactInfoPage() {
                         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Actions</h3>
                     </div>
                     <div className="divide-y divide-gray-100">
-                        <button className="w-full p-4 text-left flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors">
-                            <Shield size={20} />
-                            <span className="font-medium">Block User</span>
+                        <button
+                            onClick={handleToggleArchive}
+                            className={`w-full p-4 text-left flex items-center gap-3 transition-colors ${isArchived
+                                ? 'text-blue-600 hover:bg-blue-50'
+                                : 'text-gray-600 hover:bg-gray-50'
+                                }`}
+                        >
+                            {isArchived ? (
+                                <>
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                                    </svg>
+                                    <span className="font-medium">Unarchive Chat</span>
+                                </>
+                            ) : (
+                                <>
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                                    </svg>
+                                    <span className="font-medium">Archive Chat</span>
+                                </>
+                            )}
                         </button>
                         <button
                             onClick={() => setShowDeleteConfirm(true)}

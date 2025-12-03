@@ -11,7 +11,7 @@ export const Route = createFileRoute("/settings")({
 const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
 
 function Settings() {
-  const { loaded, updateUserProfile, writeMode } = useContext(appContext);
+  const { loaded, updateUserProfile, writeMode, refreshWriteMode } = useContext(appContext);
 
 
   // Profile State
@@ -80,7 +80,11 @@ function Settings() {
 
     // Fetch network status
     fetchNetworkStatus();
-  }, [loaded]);
+
+    // Refresh write mode status
+    console.log("🔄 [Settings] Calling refreshWriteMode...");
+    refreshWriteMode();
+  }, [loaded, refreshWriteMode]);
 
   const fetchNetworkStatus = async () => {
     try {
@@ -508,10 +512,9 @@ function Settings() {
                     </ol>
 
                     <button
-                      onClick={() => {
-                        // Save current path so we can restore it after reload
-                        localStorage.setItem("lastRoute", "/settings");
-                        window.location.reload();
+                      onClick={async () => {
+                        console.log("🔄 [Settings] Manual refresh button clicked");
+                        await refreshWriteMode();
                       }}
                       className="w-full mt-2 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
                     >

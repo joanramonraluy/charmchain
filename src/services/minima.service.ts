@@ -29,9 +29,12 @@ export interface IncomingMessagePayload {
 }
 
 type MessageCallback = (msg: IncomingMessagePayload) => void;
+type MuteStatusCallback = () => void;
 
 class MinimaService {
     private newMessageCallbacks: MessageCallback[] = [];
+    private muteStatusCallbacks: MuteStatusCallback[] = [];
+    private archiveStatusCallbacks: (() => void)[] = [];
     private initialized = false;
 
     constructor() {
@@ -165,6 +168,7 @@ class MinimaService {
                     reject(new Error(res.error));
                 } else {
                     console.log("✅ [SQL] Chat archived successfully");
+                    this.notifyArchiveStatusChange();
                     resolve();
                 }
             });
@@ -181,6 +185,7 @@ class MinimaService {
                     reject(new Error(res.error));
                 } else {
                     console.log("✅ [SQL] Chat unarchived successfully");
+                    this.notifyArchiveStatusChange();
                     resolve();
                 }
             });
@@ -241,6 +246,55 @@ class MinimaService {
         });
     }
 
+    muteContact(publickey: string): Promise<void> {
+        return new Promise((resolve) => {
+            const sql = `
+                MERGE INTO CHAT_STATUS (publickey, muted)
+                KEY (publickey)
+                VALUES ('${publickey}', TRUE)
+            `;
+            MDS.sql(sql, (res: any) => {
+                if (res.status) {
+                    console.log("✅ [DB] Contact muted:", publickey);
+                    this.notifyMuteStatusChange();
+                } else {
+                    console.error("❌ [DB] Failed to mute contact:", res.error);
+                }
+                resolve();
+            });
+        });
+    }
+
+    unmuteContact(publickey: string): Promise<void> {
+        return new Promise((resolve) => {
+            const sql = `UPDATE CHAT_STATUS SET muted=FALSE WHERE publickey='${publickey}'`;
+            MDS.sql(sql, (res: any) => {
+                if (res.status) {
+                    console.log("✅ [DB] Contact unmuted:", publickey);
+                    this.notifyMuteStatusChange();
+                } else {
+                    console.error("❌ [DB] Failed to unmute contact:", res.error);
+                }
+                resolve();
+            });
+        });
+    }
+
+    isContactMuted(publickey: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const sql = `SELECT muted FROM CHAT_STATUS WHERE publickey='${publickey}'`;
+            MDS.sql(sql, (res: any) => {
+                if (res.status && res.rows && res.rows.length > 0) {
+                    const val = res.rows[0].MUTED;
+                    const isMuted = val === true || val === 'TRUE' || val === 'true' || val === 1;
+                    resolve(isMuted);
+                } else {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
     getChatStatus(publickey: string): Promise<{ archived: boolean; lastOpened: number | null }> {
         return new Promise((resolve) => {
             const sql = `SELECT * FROM CHAT_STATUS WHERE publickey='${publickey}'`;
@@ -251,7 +305,7 @@ class MinimaService {
                 }
                 const row = res.rows[0];
                 resolve({
-                    archived: row.ARCHIVED === true || row.ARCHIVED === 1,
+                    archived: row.ARCHIVED === true || row.ARCHIVED === 'TRUE' || row.ARCHIVED === 'true' || row.ARCHIVED === 1,
                     lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null
                 });
             });
@@ -366,9 +420,29 @@ class MinimaService {
                     lastMessageDate: row.DATE,
                     lastMessageAmount: row.AMOUNT,
                     username: row.USERNAME,
-                    archived: row.ARCHIVED === true || row.ARCHIVED === 1 || false,
-                    lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null
+                    archived: row.ARCHIVED === true || row.ARCHIVED === 'TRUE' || row.ARCHIVED === 'true' || row.ARCHIVED === 1 || false,
+                    lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null,
+                    unreadCount: 0 // Initialize unread counter
                 });
+            }
+        });
+
+        // Count unread messages for each chat
+        rows.forEach((row: any) => {
+            const publickey = row.PUBLICKEY;
+            const chat = chatMap.get(publickey);
+
+            if (chat) {
+                const messageDate = Number(row.DATE);
+                const lastOpened = chat.lastOpened;
+                const isFromMe = row.USERNAME === "Me";
+
+                // Count messages that are:
+                // 1. Not sent by me
+                // 2. Received after the chat was last opened (or never opened)
+                if (!isFromMe && (!lastOpened || messageDate > lastOpened)) {
+                    chat.unreadCount++;
+                }
             }
         });
 
@@ -399,6 +473,42 @@ class MinimaService {
         if (index > -1) {
             this.newMessageCallbacks.splice(index, 1);
         }
+    }
+
+    /* ----------------------------------------------------------------------------
+       MUTE STATUS CALLBACKS
+    ---------------------------------------------------------------------------- */
+    onMuteStatusChange(cb: () => void) {
+        this.muteStatusCallbacks.push(cb);
+    }
+
+    removeMuteStatusCallback(cb: () => void) {
+        const index = this.muteStatusCallbacks.indexOf(cb);
+        if (index > -1) {
+            this.muteStatusCallbacks.splice(index, 1);
+        }
+    }
+
+    private notifyMuteStatusChange() {
+        this.muteStatusCallbacks.forEach(cb => cb());
+    }
+
+    /* ----------------------------------------------------------------------------
+       ARCHIVE STATUS CALLBACKS
+    ---------------------------------------------------------------------------- */
+    onArchiveStatusChange(cb: () => void) {
+        this.archiveStatusCallbacks.push(cb);
+    }
+
+    removeArchiveStatusCallback(cb: () => void) {
+        const index = this.archiveStatusCallbacks.indexOf(cb);
+        if (index > -1) {
+            this.archiveStatusCallbacks.splice(index, 1);
+        }
+    }
+
+    private notifyArchiveStatusChange() {
+        this.archiveStatusCallbacks.forEach(cb => cb());
     }
 
     /**
