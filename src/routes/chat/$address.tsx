@@ -8,6 +8,7 @@ import { Paperclip, Trash2, Info, BarChart, Archive } from "lucide-react";
 import MessageBubble from "../../components/chat/MessageBubble";
 import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
+import InviteDialog from "../../components/chat/InviteDialog";
 
 export const Route = createFileRoute("/chat/$address")({
   component: ChatPage,
@@ -67,6 +68,8 @@ function ChatPage() {
 
   const [showReadModeWarning, setShowReadModeWarning] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteSending, setInviteSending] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -546,6 +549,34 @@ function ChatPage() {
 
 
   /* ----------------------------------------------------------------------------
+      SEND INVITATION
+  ---------------------------------------------------------------------------- */
+  const handleSendInvite = async () => {
+    if (!contact?.publickey) return;
+
+    setInviteSending(true);
+    try {
+      const username = userName || "A friend"; // Fallback if userName is not set in context
+      await minimaService.sendInvitation(contact.publickey, username);
+
+      // Close dialog
+      setShowInviteDialog(false);
+
+      // Optional: Show a toast or feedback? 
+      // For now, we just close the dialog. The user will see the message in MaxSolo if they check sent messages, 
+      // but here we just want to confirm the action was taken.
+      alert("Invitation sent successfully via Maxima!");
+
+    } catch (err) {
+      console.error("Failed to send invitation:", err);
+      alert("Failed to send invitation. Please try again.");
+    } finally {
+      setInviteSending(false);
+    }
+  };
+
+
+  /* ----------------------------------------------------------------------------
       RENDER
   ---------------------------------------------------------------------------- */
   return (
@@ -585,7 +616,15 @@ function ChatPage() {
               ) : appStatus === 'checking' ? (
                 <span className="text-xs opacity-80">Checking status...</span>
               ) : appStatus === 'not_found' ? (
-                <span className="text-xs text-red-200">App not detected</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevent navigating to contact info
+                    setShowInviteDialog(true);
+                  }}
+                  className="text-xs text-red-200 hover:text-white hover:underline transition-colors text-left"
+                >
+                  App not detected (Invite?)
+                </button>
               ) : (
                 <span className="text-xs opacity-80 truncate block">
                   online
@@ -682,6 +721,15 @@ function ChatPage() {
           </div>
         </div>
       )}
+
+      {/* Invite Dialog */}
+      <InviteDialog
+        isOpen={showInviteDialog}
+        onClose={() => setShowInviteDialog(false)}
+        onSend={handleSendInvite}
+        isSending={inviteSending}
+        contactName={contact?.extradata?.name || "this contact"}
+      />
 
       {/* Chat Info Dialog */}
       {showChatInfo && (

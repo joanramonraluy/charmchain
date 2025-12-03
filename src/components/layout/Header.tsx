@@ -48,10 +48,25 @@ export default function Header({ onToggleMenu }: HeaderProps) {
         </div>
 
         <div className="flex items-center gap-4">
-          <Wifi
-            size={20}
-            className={`${synced ? "text-green-300" : "text-red-300 animate-pulse"} transition-colors`}
-          />
+          <button
+            onClick={() => {
+              navigate({ to: "/settings" });
+              // Scroll to network section after navigation
+              setTimeout(() => {
+                const networkSection = document.getElementById("network");
+                if (networkSection) {
+                  networkSection.scrollIntoView({ behavior: "smooth", block: "start" });
+                }
+              }, 100);
+            }}
+            className="p-2 hover:bg-white/10 rounded-full transition-all cursor-pointer"
+            title="Network Status"
+          >
+            <Wifi
+              size={20}
+              className={`${synced ? "text-green-300" : "text-red-300 animate-pulse"} transition-colors`}
+            />
+          </button>
           <div
             onClick={() => navigate({ to: "/settings" })}
             className="cursor-pointer transition-transform hover:scale-105 active:scale-95 md:hidden"

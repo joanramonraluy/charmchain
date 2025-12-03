@@ -489,6 +489,22 @@ class MinimaService {
                     return;
                 }
 
+                if (json.type === "ping") {
+                    console.log("📡 [MAXIMA] Ping received from", from, "- sending Pong");
+                    // Send Pong response
+                    this.sendPong(from).catch(err => console.error("❌ [CharmChain] Failed to send Pong:", err));
+                    // Notify listeners (optional, but good for debugging)
+                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'ping' }));
+                    return;
+                }
+
+                if (json.type === "pong") {
+                    console.log("📡 [MAXIMA] Pong received from", from);
+                    // Notify listeners so UI can update app status
+                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'pong' }));
+                    return;
+                }
+
                 // Normal message
                 console.log("✅ [CharmChain] Missatge rebut (guardat per Service Worker):", json.message);
 
@@ -630,6 +646,46 @@ class MinimaService {
             return result;
         } catch (err) {
             console.error("❌ [SQL] Error updating message state:", err);
+            throw err;
+        }
+    }
+
+    /* ----------------------------------------------------------------------------
+       SEND INVITATION VIA MAXSOLO
+    ---------------------------------------------------------------------------- */
+    async sendInvitation(publickey: string, senderName: string): Promise<void> {
+        const inviteMessage = `${senderName} wants to connect with you on CharmChain!
+
+CharmChain is a secure messaging app on Minima where you can send messages, charms, and tokens.
+
+Install it from the MiniDapp Store to start chatting!`;
+
+        // Convert to HEX manually to match MaxSolo behavior
+        const hexData = "0x" + this.utf8ToHex(inviteMessage).toUpperCase();
+
+        console.log("📤 [Invitation] Sending invitation to:", publickey);
+        console.log("📝 [Invitation] Message:", inviteMessage);
+
+        try {
+            const response = await MDS.cmd.maxima({
+                params: {
+                    action: "send",
+                    publickey: publickey,
+                    application: "maxsolo", // Send to MaxSolo instead of CharmChain
+                    data: hexData,
+                    poll: false,
+                } as any,
+            });
+
+            console.log("📡 [Invitation] Response:", response);
+
+            if (response && (response as any).status === false) {
+                throw new Error((response as any).error || "Failed to send invitation");
+            }
+
+            console.log("✅ [Invitation] Invitation sent successfully via MaxSolo");
+        } catch (err) {
+            console.error("❌ [Invitation] Error sending invitation:", err);
             throw err;
         }
     }
@@ -1381,6 +1437,36 @@ class MinimaService {
             console.log("✅ [CharmChain] Ping sent successfully");
         } catch (err) {
             console.error("❌ [CharmChain] Error sending ping:", err);
+            throw err;
+        }
+    }
+
+    async sendPong(toPublicKey: string) {
+        console.log("📡 [CharmChain] Sending Pong to", toPublicKey);
+        try {
+            const payload = {
+                message: "",
+                type: "pong",
+                username: "Me",
+                filedata: ""
+            };
+
+            const jsonStr = JSON.stringify(payload);
+            const hexData = "0x" + this.utf8ToHex(jsonStr).toUpperCase();
+
+            await MDS.cmd.maxima({
+                params: {
+                    action: "send",
+                    publickey: toPublicKey,
+                    application: "charmchain",
+                    data: hexData,
+                    poll: false,
+                } as any,
+            });
+
+            console.log("✅ [CharmChain] Pong sent successfully");
+        } catch (err) {
+            console.error("❌ [CharmChain] Error sending pong:", err);
             throw err;
         }
     }

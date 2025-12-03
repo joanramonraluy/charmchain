@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useContext, useEffect, useState } from "react";
 import { MDS } from "@minima-global/mds";
 import { appContext } from "../AppContext";
-import { User, ChevronDown, ChevronUp, Copy, Check, Edit2, Globe, Palette, Shield, AlertTriangle, RefreshCw } from "lucide-react";
+import { User, ChevronDown, ChevronUp, Copy, Check, Edit2, Globe, Palette, Shield, AlertTriangle, RefreshCw, Info } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   component: Settings,
@@ -29,6 +29,11 @@ function Settings() {
   const [userDescription, setUserDescription] = useState("");
   const [editDescriptionValue, setEditDescriptionValue] = useState("");
   const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
+
+  // Network Status State
+  const [networkStatus, setNetworkStatus] = useState<any>(null);
+  const [networkLoading, setNetworkLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number>(Date.now());
 
   useEffect(() => {
     if (!loaded) return;
@@ -72,7 +77,23 @@ function Settings() {
     if (savedDescription) {
       setUserDescription(savedDescription);
     }
+
+    // Fetch network status
+    fetchNetworkStatus();
   }, [loaded]);
+
+  const fetchNetworkStatus = async () => {
+    try {
+      setNetworkLoading(true);
+      const statusRes = await MDS.cmd.status();
+      setNetworkStatus(statusRes.response);
+      setLastUpdated(Date.now());
+    } catch (err) {
+      console.error("Error fetching network status:", err);
+    } finally {
+      setNetworkLoading(false);
+    }
+  };
 
 
 
@@ -513,14 +534,135 @@ function Settings() {
               </div>
             </section>
 
-            {/* NETWORK SECTION (Placeholder) */}
-            <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden opacity-60">
-              <div className="p-6 border-b border-gray-100 flex items-center gap-3">
-                <Globe className="text-green-500" />
-                <h2 className="text-xl font-semibold text-gray-800">Network</h2>
+            {/* NETWORK SECTION */}
+            <section id="network" className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Globe className="text-green-500" />
+                  <h2 className="text-xl font-semibold text-gray-800">Network</h2>
+                </div>
+                <button
+                  onClick={fetchNetworkStatus}
+                  disabled={networkLoading}
+                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                  title="Refresh network status"
+                >
+                  <RefreshCw size={18} className={networkLoading ? "animate-spin" : ""} />
+                </button>
               </div>
               <div className="p-6">
-                <p className="text-gray-500">Network settings are managed by Minima.</p>
+                {networkLoading && !networkStatus ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw size={24} className="animate-spin text-gray-400" />
+                  </div>
+                ) : networkStatus ? (
+                  <>
+                    {/* Health Status Badge */}
+                    <div className={`flex items-center gap-3 p-4 rounded-xl mb-6 ${networkStatus.network?.connected > 3
+                      ? 'bg-green-50 border border-green-100'
+                      : networkStatus.network?.connected > 0
+                        ? 'bg-yellow-50 border border-yellow-100'
+                        : 'bg-red-50 border border-red-100'
+                      }`}>
+                      <div className={`p-2 rounded-full ${networkStatus.network?.connected > 3
+                        ? 'bg-green-100 text-green-600'
+                        : networkStatus.network?.connected > 0
+                          ? 'bg-yellow-100 text-yellow-600'
+                          : 'bg-red-100 text-red-600'
+                        }`}>
+                        <Check size={20} />
+                      </div>
+                      <div>
+                        <h3 className={`font-semibold ${networkStatus.network?.connected > 3
+                          ? 'text-green-800'
+                          : networkStatus.network?.connected > 0
+                            ? 'text-yellow-800'
+                            : 'text-red-800'
+                          }`}>
+                          {networkStatus.network?.connected > 3
+                            ? 'Network running smoothly'
+                            : networkStatus.network?.connected > 0
+                              ? 'Limited connection'
+                              : 'No connection'}
+                        </h3>
+                        <p className={`text-sm ${networkStatus.network?.connected > 3
+                          ? 'text-green-600'
+                          : networkStatus.network?.connected > 0
+                            ? 'text-yellow-600'
+                            : 'text-red-600'
+                          }`}>
+                          {networkStatus.network?.connected > 3
+                            ? 'Connected to Minima network'
+                            : networkStatus.network?.connected > 0
+                              ? 'Few active connections'
+                              : 'No active connections'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Network Metrics */}
+                    <div className="space-y-4">
+                      {/* Connections */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+                            <Globe size={18} />
+                          </div>
+                          <span className="font-medium text-gray-700">Connections</span>
+                        </div>
+                        <span className="text-lg font-bold text-gray-900">
+                          {networkStatus.network?.connected || 0} nodes
+                        </span>
+                      </div>
+
+                      {/* Current Block */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-purple-100 rounded-lg text-purple-600">
+                            <span className="text-sm font-bold">⛓️</span>
+                          </div>
+                          <span className="font-medium text-gray-700">Current Block</span>
+                        </div>
+                        <span className="text-lg font-bold text-gray-900">
+                          #{networkStatus.chain?.block?.toLocaleString() || 0}
+                        </span>
+                      </div>
+
+                      {/* Last Block Time */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-orange-100 rounded-lg text-orange-600">
+                            <span className="text-sm font-bold">🕐</span>
+                          </div>
+                          <span className="font-medium text-gray-700">Last Update</span>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-700">
+                          {networkStatus.chain?.time || 'N/A'}
+                        </span>
+                      </div>
+
+                      {/* Minima Version */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-gray-200 rounded-lg text-gray-600">
+                            <Info size={18} />
+                          </div>
+                          <span className="font-medium text-gray-700">Version</span>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-700">
+                          Minima {networkStatus.version || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Last Updated Timestamp */}
+                    <div className="mt-6 text-center text-xs text-gray-500">
+                      Updated {Math.floor((Date.now() - lastUpdated) / 1000)} seconds ago
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-gray-500 text-center py-4">Unable to load network data</p>
+                )}
               </div>
             </section>
 

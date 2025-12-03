@@ -60,14 +60,20 @@ export default function SideMenu({ isOpen, setIsOpen }: SideMenuProps) {
         {/* Header */}
         <div className="p-6 flex items-center justify-between border-b border-gray-700">
           <div className="flex items-center gap-3 overflow-hidden">
-            <img
-              src={userAvatar}
-              alt="User"
-              className="w-10 h-10 rounded-full object-cover border-4 border-white"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = defaultAvatar;
-              }}
-            />
+            <Link
+              to="/settings"
+              onClick={() => setIsOpen(false)}
+              className="flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <img
+                src={userAvatar}
+                alt="User"
+                className="w-10 h-10 rounded-full object-cover border-4 border-white"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = defaultAvatar;
+                }}
+              />
+            </Link>
             <h1 className="text-lg font-bold tracking-tight truncate max-w-[140px]" title={userName}>
               {userName}
             </h1>
