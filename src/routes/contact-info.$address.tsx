@@ -142,7 +142,7 @@ function ContactInfoPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="h-full overflow-y-auto bg-gray-50">
             {/* Header */}
             <div className="bg-white px-4 py-3 flex items-center gap-3 shadow-sm sticky top-0 z-10">
                 <button

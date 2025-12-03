@@ -49,9 +49,7 @@ export default function Header({ onToggleMenu }: HeaderProps) {
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-sm">
-              CC
-            </div>
+            <img src="icon.png" alt="Logo" className="w-8 h-8 rounded-lg shadow-sm" />
             <h1 className="text-xl font-bold tracking-wide">{pageTitle}</h1>
           </div>
         </div>
