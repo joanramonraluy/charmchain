@@ -37,6 +37,7 @@ export default function ChatList() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [swipedChat, setSwipedChat] = useState<string | null>(null);
+    const [hoveredChat, setHoveredChat] = useState<string | null>(null);
     const navigate = useNavigate();
 
     const fetchChats = async () => {
@@ -231,6 +232,8 @@ export default function ChatList() {
                                     e.preventDefault();
                                     setSwipedChat(swipedChat === chat.publickey ? null : chat.publickey);
                                 }}
+                                onMouseEnter={() => setHoveredChat(chat.publickey)}
+                                onMouseLeave={() => setHoveredChat(null)}
                             >
                                 <div className="flex items-center gap-3">
                                     {/* Avatar */}
@@ -264,11 +267,20 @@ export default function ChatList() {
                                         </p>
                                     </div>
 
-                                    {/* Archive button on right click */}
+                                    {/* Archive button - shows on hover (desktop) or right-click (mobile) */}
+                                    {(hoveredChat === chat.publickey || swipedChat === chat.publickey) && (
+                                        <button
+                                            onClick={(e) => handleArchive(chat.publickey, e)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors hidden md:flex items-center gap-1"
+                                        >
+                                            📦 Archive
+                                        </button>
+                                    )}
+                                    {/* Mobile only - show on swipe/right-click */}
                                     {swipedChat === chat.publickey && (
                                         <button
                                             onClick={(e) => handleArchive(chat.publickey, e)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors"
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors md:hidden"
                                         >
                                             📦 Archive
                                         </button>
@@ -303,6 +315,8 @@ export default function ChatList() {
                                     e.preventDefault();
                                     setSwipedChat(swipedChat === chat.publickey ? null : chat.publickey);
                                 }}
+                                onMouseEnter={() => setHoveredChat(chat.publickey)}
+                                onMouseLeave={() => setHoveredChat(null)}
                             >
                                 <div className="flex items-center gap-3">
                                     {/* Archive Icon */}
@@ -336,11 +350,20 @@ export default function ChatList() {
                                         </p>
                                     </div>
 
-                                    {/* Unarchive button on right click */}
+                                    {/* Unarchive button - shows on hover (desktop) or right-click (mobile) */}
+                                    {(hoveredChat === chat.publickey || swipedChat === chat.publickey) && (
+                                        <button
+                                            onClick={(e) => handleUnarchive(chat.publickey, e)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors hidden md:flex items-center gap-1"
+                                        >
+                                            📂 Unarchive
+                                        </button>
+                                    )}
+                                    {/* Mobile only - show on swipe/right-click */}
                                     {swipedChat === chat.publickey && (
                                         <button
                                             onClick={(e) => handleUnarchive(chat.publickey, e)}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors md:hidden"
                                         >
                                             📂 Unarchive
                                         </button>

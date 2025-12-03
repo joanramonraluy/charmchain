@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import { appContext } from "../../AppContext";
 import CharmSelector from "../../components/chat/CharmSelector";
-import { Paperclip, Trash2, Info } from "lucide-react";
+import { Paperclip, Trash2, Info, BarChart, Archive } from "lucide-react";
 import MessageBubble from "../../components/chat/MessageBubble";
 import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
@@ -61,6 +61,8 @@ function ChatPage() {
   const [showAttachments, setShowAttachments] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showChatInfo, setShowChatInfo] = useState(false);
+  const [isArchived, setIsArchived] = useState(false);
 
 
   const [showReadModeWarning, setShowReadModeWarning] = useState(false);
@@ -111,6 +113,21 @@ function ChatPage() {
 
     fetchContact();
   }, [address]);
+
+  // Check if chat is archived
+  useEffect(() => {
+    const checkArchiveStatus = async () => {
+      if (!contact?.publickey) return;
+      try {
+        const status = await minimaService.getChatStatus(contact.publickey);
+        setIsArchived(status.archived);
+      } catch (err) {
+        console.error("[Archive] Error checking archive status:", err);
+      }
+    };
+
+    checkArchiveStatus();
+  }, [contact]);
 
   /* ----------------------------------------------------------------------------
       LOAD MESSAGES FROM DB
@@ -506,6 +523,27 @@ function ChatPage() {
     }
   };
 
+  /* ----------------------------------------------------------------------------
+      TOGGLE ARCHIVE
+  ---------------------------------------------------------------------------- */
+  const handleToggleArchive = async () => {
+    if (!contact?.publickey) return;
+
+    try {
+      if (isArchived) {
+        await minimaService.unarchiveChat(contact.publickey);
+        setIsArchived(false);
+        console.log("✅ Chat unarchived successfully");
+      } else {
+        await minimaService.archiveChat(contact.publickey);
+        setIsArchived(true);
+        console.log("✅ Chat archived successfully");
+      }
+    } catch (err) {
+      console.error("❌ Failed to toggle archive:", err);
+    }
+  };
+
 
   /* ----------------------------------------------------------------------------
       RENDER
@@ -582,6 +620,26 @@ function ChatPage() {
                 <span className="font-medium">Contact Info</span>
               </button>
               <button
+                className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-gray-100 text-gray-300 md:text-gray-700 transition-colors text-left border-t border-gray-700 md:border-gray-200"
+                onClick={() => {
+                  setShowMenu(false);
+                  setShowChatInfo(true);
+                }}
+              >
+                <BarChart size={18} />
+                <span className="font-medium">Chat Info</span>
+              </button>
+              <button
+                className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-gray-100 text-gray-300 md:text-gray-700 transition-colors text-left border-t border-gray-700 md:border-gray-200"
+                onClick={() => {
+                  setShowMenu(false);
+                  handleToggleArchive();
+                }}
+              >
+                <Archive size={18} />
+                <span className="font-medium">{isArchived ? 'Unarchive Chat' : 'Archive Chat'}</span>
+              </button>
+              <button
                 className="flex items-center gap-3 w-full p-3 hover:bg-red-900/50 md:hover:bg-red-50 text-red-400 md:text-red-600 rounded-b-lg transition-colors text-left border-t border-gray-700 md:border-gray-200"
                 onClick={() => {
                   setShowMenu(false);
@@ -621,6 +679,98 @@ function ChatPage() {
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Chat Info Dialog */}
+      {showChatInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 md:bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in zoom-in-95 fade-in duration-200 border border-gray-700 md:border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-white md:text-gray-900">Chat Statistics</h3>
+              <button
+                onClick={() => setShowChatInfo(false)}
+                className="text-gray-400 md:text-gray-500 hover:text-gray-300 md:hover:text-gray-700 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Total Messages */}
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 md:bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-400 md:text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </div>
+                  <span className="font-medium text-gray-300 md:text-gray-700">Total Messages</span>
+                </div>
+                <span className="text-lg font-bold text-white md:text-gray-900">{messages.length}</span>
+              </div>
+
+              {/* Charms Sent/Received */}
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 md:bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center">
+                    <span className="text-xl">✨</span>
+                  </div>
+                  <span className="font-medium text-gray-300 md:text-gray-700">Charms</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-gray-400 md:text-gray-500">
+                    Sent: {messages.filter(m => m.charm && m.fromMe).length} |
+                    Received: {messages.filter(m => m.charm && !m.fromMe).length}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tokens Transferred */}
+              <div className="flex items-center justify-between p-3 bg-gray-700/50 md:bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-green-400 md:text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <span className="font-medium text-gray-300 md:text-gray-700">Token Transfers</span>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm text-gray-400 md:text-gray-500">
+                    Sent: {messages.filter(m => m.tokenAmount && m.fromMe).length} |
+                    Received: {messages.filter(m => m.tokenAmount && !m.fromMe).length}
+                  </div>
+                </div>
+              </div>
+
+              {/* First Message Date */}
+              {messages.length > 0 && messages[0].timestamp && (
+                <div className="flex items-center justify-between p-3 bg-gray-700/50 md:bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-orange-500/20 rounded-full flex items-center justify-center">
+                      <svg className="w-5 h-5 text-orange-400 md:text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <span className="font-medium text-gray-300 md:text-gray-700">First Message</span>
+                  </div>
+                  <span className="text-sm text-gray-400 md:text-gray-600">
+                    {new Date(messages[0].timestamp).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={() => setShowChatInfo(false)}
+              className="w-full mt-6 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
@@ -707,7 +857,7 @@ function ChatPage() {
       </div>
 
       {/* INPUT BAR - Fixed at bottom */}
-      <div className="p-2 bg-[#F0F2F5] flex gap-2 items-end flex-shrink-0 z-10 relative">
+      <div className="p-2 bg-[#F0F2F5] flex gap-2 items-center flex-shrink-0 z-10 relative">
         {/* Attachment Menu Popover */}
         {showAttachments && (
           <div className="absolute bottom-16 left-2 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-1 min-w-[160px] animate-in slide-in-from-bottom-2 fade-in duration-200">
@@ -735,14 +885,14 @@ function ChatPage() {
         )}
 
         <button
-          className={`p - 3 rounded - full transition - colors ${showAttachments ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:text-gray-700'} `}
+          className={`p-3 rounded-full transition-colors ${showAttachments ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
           onClick={() => setShowAttachments(!showAttachments)}
           title="Attachments"
         >
           <Paperclip className="w-6 h-6" />
         </button>
 
-        <div className="flex-1 bg-white rounded-2xl flex items-center border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent shadow-sm px-4 py-2 mb-1 transition-all">
+        <div className="flex-1 bg-white rounded-2xl flex items-center border border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent shadow-sm px-4 py-2 transition-all">
           <input
             className="flex-1 bg-transparent outline-none text-gray-900 placeholder-gray-500 text-[15px] max-h-32 py-1"
             type="text"
@@ -754,11 +904,11 @@ function ChatPage() {
         </div>
 
         <button
-          className={`p - 3 rounded - full transition - all duration - 200 mb - 1 shadow - sm
+          className={`p-3 rounded-full transition-all duration-200 shadow-sm
             ${input.trim()
               ? 'bg-[#0088cc] text-white hover:bg-[#0077b5] transform hover:scale-105'
               : 'bg-gray-200 text-gray-400 cursor-default'
-            } `}
+            }`}
           onClick={handleSendMessage}
           disabled={!input.trim()}
         >
