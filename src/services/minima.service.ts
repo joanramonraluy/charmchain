@@ -660,11 +660,20 @@ CharmChain is a secure messaging app on Minima where you can send messages, char
 
 Install it from the MiniDapp Store to start chatting!`;
 
-        // Convert to HEX manually to match MaxSolo behavior
-        const hexData = "0x" + this.utf8ToHex(inviteMessage).toUpperCase();
+        // Create a JSON object that MaxSolo expects
+        const payload = {
+            username: senderName,
+            type: "text",
+            message: inviteMessage,
+            filedata: ""
+        };
+
+        // Convert JSON to string, then to HEX
+        const jsonStr = JSON.stringify(payload);
+        const hexData = "0x" + this.utf8ToHex(jsonStr).toUpperCase();
 
         console.log("📤 [Invitation] Sending invitation to:", publickey);
-        console.log("📝 [Invitation] Message:", inviteMessage);
+        console.log("📝 [Invitation] Message Payload:", payload);
 
         try {
             const response = await MDS.cmd.maxima({
