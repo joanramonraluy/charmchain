@@ -294,6 +294,22 @@ class MinimaService {
         });
     }
 
+    deleteAllMessages(publickey: string): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const sql = `DELETE FROM CHAT_MESSAGES WHERE publickey='${publickey}'`;
+            console.log("🗑️ [SQL] Deleting all messages for:", publickey);
+            MDS.sql(sql, (res: any) => {
+                if (!res.status) {
+                    console.error("❌ [SQL] Failed to delete messages:", res.error);
+                    reject(new Error(res.error));
+                } else {
+                    console.log("✅ [SQL] All messages deleted successfully");
+                    resolve();
+                }
+            });
+        });
+    }
+
     getRecentChats(): Promise<any[]> {
         return new Promise((resolve) => {
             // Get all messages with their chat status

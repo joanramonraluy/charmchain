@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import { appContext } from "../../AppContext";
 import CharmSelector from "../../components/chat/CharmSelector";
-import { Paperclip } from "lucide-react";
+import { Paperclip, Trash2, Info } from "lucide-react";
 import MessageBubble from "../../components/chat/MessageBubble";
 import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
@@ -45,7 +45,7 @@ function ChatPage() {
     return msgs.filter((m) => {
       // Create a more unique key including type info
       const typeStr = m.charm ? 'charm' : m.tokenAmount ? 'token' : 'text';
-      const key = `${m.timestamp}-${typeStr}-${m.text || ''}`;
+      const key = `${m.timestamp} -${typeStr} -${m.text || ''} `;
 
       if (seen.has(key)) return false;
       seen.add(key);
@@ -59,6 +59,8 @@ function ChatPage() {
   const [showCharmSelector, setShowCharmSelector] = useState(false);
   const [showTokenSelector, setShowTokenSelector] = useState(false);
   const [showAttachments, setShowAttachments] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
 
   const [showReadModeWarning, setShowReadModeWarning] = useState(false);
@@ -69,14 +71,7 @@ function ChatPage() {
   const navigate = useNavigate();
   const { writeMode, userName } = useContext(appContext);
 
-  const defaultAvatar =
-    "data:image/svg+xml;base64," +
-    btoa(
-      `<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'>
-        <rect width='48' height='48' fill='#e0e0e0'/>
-        <text x='50%' y='55%' text-anchor='middle' font-size='24' fill='#ffffff' dy='.3em' font-family='sans-serif'>?</text>
-      </svg>`
-    );
+  const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
 
   const getAvatar = (c: Contact | null) => {
     if (!c) return defaultAvatar;
@@ -140,7 +135,7 @@ function ChatPage() {
             try {
               const tokenData = JSON.parse(decodeURIComponent(row.MESSAGE || "{}"));
               tokenAmount = { amount: tokenData.amount, tokenName: tokenData.tokenName };
-              displayText = `I sent you ${tokenData.amount} ${tokenData.tokenName}`;
+              displayText = `I sent you ${tokenData.amount} ${tokenData.tokenName} `;
             } catch (err) {
               console.error("[DB] Error parsing token data:", err);
               displayText = decodeURIComponent(row.MESSAGE || "");
@@ -149,7 +144,7 @@ function ChatPage() {
             displayText = decodeURIComponent(row.MESSAGE || "");
           }
 
-          // console.log(`🔍 [loadMessages] Message timestamp=${row.DATE}, STATE from DB="${row.STATE}", type=${row.TYPE}`);
+          // console.log(`🔍[loadMessages] Message timestamp = ${ row.DATE }, STATE from DB = "${row.STATE}", type = ${ row.TYPE } `);
 
           // Safer status parsing - do NOT default to 'sent' blindly
           let parsedStatus: any = row.STATE;
@@ -172,7 +167,7 @@ function ChatPage() {
           return parsed;
         });
 
-        // console.log(`🔍 [loadMessages] Loaded ${parsedMessages.length} messages. Pending: ${parsedMessages.filter(m => m.status === 'pending').length}, Zombie: ${parsedMessages.filter(m => m.status === 'zombie').length}`);
+        // console.log(`🔍[loadMessages] Loaded ${ parsedMessages.length } messages.Pending: ${ parsedMessages.filter(m => m.status === 'pending').length }, Zombie: ${ parsedMessages.filter(m => m.status === 'zombie').length } `);
         const deduplicatedMessages = deduplicateMessages(parsedMessages);
         setMessages(deduplicatedMessages);
       }
@@ -438,9 +433,9 @@ function ChatPage() {
             { tokenId, amount, tokenName, username },
             pendinguid
           );
-          console.log(`💾 [ChatPage] Token transaction tracked: ${txpowid || 'No TXPOWID'} (PendingUID: ${pendinguid || 'None'})`);
+          console.log(`💾[ChatPage] Token transaction tracked: ${txpowid || 'No TXPOWID'} (PendingUID: ${pendinguid || 'None'})`);
         } else {
-          console.warn(`⚠️ [ChatPage] Could not track token transaction: No txpowid AND no pendinguid`);
+          console.warn(`⚠️[ChatPage] Could not track token transaction: No txpowid AND no pendinguid`);
         }
 
         // Reload messages from DB to show the pending message
@@ -496,6 +491,23 @@ function ChatPage() {
   };
 
   /* ----------------------------------------------------------------------------
+      DELETE CHAT
+  ---------------------------------------------------------------------------- */
+  const handleDeleteChat = async () => {
+    if (!contact?.publickey) return;
+
+    try {
+      await minimaService.deleteAllMessages(contact.publickey);
+      console.log("✅ Chat deleted successfully");
+      // Navigate back to chat list
+      navigate({ to: '/' });
+    } catch (err) {
+      console.error("❌ Failed to delete chat:", err);
+    }
+  };
+
+
+  /* ----------------------------------------------------------------------------
       RENDER
   ---------------------------------------------------------------------------- */
   return (
@@ -515,7 +527,7 @@ function ChatPage() {
 
         <div
           className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => navigate({ to: `/contact-info/${address}` })}
+          onClick={() => navigate({ to: `/ contact - info / ${address} ` })}
         >
           <img
             src={getAvatar(contact)}
@@ -546,16 +558,73 @@ function ChatPage() {
         </div>
 
         {/* Header Actions */}
-        <div className="flex gap-4">
-
-
-          <button className="opacity-80 hover:opacity-100">
+        <div className="flex gap-4 relative">
+          <button
+            className="opacity-80 hover:opacity-100"
+            onClick={() => setShowMenu(!showMenu)}
+          >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
             </svg>
           </button>
+
+          {/* Dropdown Menu */}
+          {showMenu && (
+            <div className="absolute top-10 right-0 bg-gray-800 md:bg-white rounded-lg shadow-xl border border-gray-700 md:border-gray-200 min-w-[180px] z-50 animate-in slide-in-from-top-2 fade-in duration-200">
+              <button
+                className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-gray-100 text-gray-300 md:text-gray-700 rounded-t-lg transition-colors text-left"
+                onClick={() => {
+                  setShowMenu(false);
+                  navigate({ to: `/contact-info/${address}` });
+                }}
+              >
+                <Info size={18} />
+                <span className="font-medium">Contact Info</span>
+              </button>
+              <button
+                className="flex items-center gap-3 w-full p-3 hover:bg-red-900/50 md:hover:bg-red-50 text-red-400 md:text-red-600 rounded-b-lg transition-colors text-left border-t border-gray-700 md:border-gray-200"
+                onClick={() => {
+                  setShowMenu(false);
+                  setShowDeleteConfirm(true);
+                }}
+              >
+                <Trash2 size={18} />
+                <span className="font-medium">Delete Chat</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 md:bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 fade-in duration-200 border border-gray-700 md:border-gray-200">
+            <h3 className="text-lg font-bold text-white md:text-gray-900 mb-2">Delete Chat?</h3>
+            <p className="text-gray-300 md:text-gray-600 mb-6">
+              This will permanently delete all messages in this conversation. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 px-4 py-2 border border-gray-600 md:border-gray-300 text-gray-300 md:text-gray-700 rounded-lg hover:bg-gray-700 md:hover:bg-gray-50 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  handleDeleteChat();
+                }}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
 
 
@@ -565,7 +634,7 @@ function ChatPage() {
         <div
           className="absolute inset-0 opacity-[0.4] pointer-events-none"
           style={{
-            backgroundImage: `radial-gradient(#cbd5e1 1.5px, transparent 1.5px)`,
+            backgroundImage: `radial - gradient(#cbd5e1 1.5px, transparent 1.5px)`,
             backgroundSize: '24px 24px'
           }}
         ></div>
@@ -585,7 +654,7 @@ function ChatPage() {
                     </p>
                     <p className="text-xs text-yellow-700 font-medium mt-0.5">
                       {msg.tokenAmount
-                        ? `${msg.tokenAmount.amount} ${msg.tokenAmount.tokenName}`
+                        ? `${msg.tokenAmount.amount} ${msg.tokenAmount.tokenName} `
                         : `${msg.amount} MINIMA`}
                     </p>
                   </div>
@@ -613,7 +682,7 @@ function ChatPage() {
           const showDate = currentDate !== prevDate;
 
           return (
-            <div key={`${msg.timestamp}-${msg.text || 'no-text'}-${i}`} className="flex flex-col w-full z-0 relative">
+            <div key={`${msg.timestamp} -${msg.text || 'no-text'} -${i} `} className="flex flex-col w-full z-0 relative">
               {showDate && msg.timestamp && (
                 <div className="flex justify-center my-3 sticky top-2 z-10">
                   <span className="text-xs text-gray-600 font-medium bg-[#E1F3FB] border border-white/50 px-3 py-1.5 rounded-lg shadow-sm uppercase tracking-wide backdrop-blur-sm">
@@ -666,7 +735,7 @@ function ChatPage() {
         )}
 
         <button
-          className={`p-3 rounded-full transition-colors ${showAttachments ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`p - 3 rounded - full transition - colors ${showAttachments ? 'bg-gray-200 text-gray-800' : 'text-gray-500 hover:text-gray-700'} `}
           onClick={() => setShowAttachments(!showAttachments)}
           title="Attachments"
         >
@@ -685,10 +754,11 @@ function ChatPage() {
         </div>
 
         <button
-          className={`p-3 rounded-full transition-all duration-200 mb-1 shadow-sm
+          className={`p - 3 rounded - full transition - all duration - 200 mb - 1 shadow - sm
             ${input.trim()
               ? 'bg-[#0088cc] text-white hover:bg-[#0077b5] transform hover:scale-105'
-              : 'bg-gray-200 text-gray-400 cursor-default'}`}
+              : 'bg-gray-200 text-gray-400 cursor-default'
+            } `}
           onClick={handleSendMessage}
           disabled={!input.trim()}
         >
