@@ -656,7 +656,7 @@ class MinimaService {
     async sendInvitation(publickey: string, senderName: string): Promise<void> {
         const inviteMessage = `${senderName} wants to connect with you on CharmChain!
 
-CharmChain is a secure messaging app on Minima where you can send messages, charms, and tokens.
+CharmChain is a secure messaging Dapp on Minima where you can send messages, charms, and tokens.
 
 Install it from the MiniDapp Store to start chatting!`;
 

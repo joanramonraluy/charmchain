@@ -29,6 +29,7 @@ function ContactInfoPage() {
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
 
@@ -110,6 +111,20 @@ function ContactInfoPage() {
         navigator.clipboard.writeText(text);
         setCopiedField(fieldId);
         setTimeout(() => setCopiedField(null), 2000);
+    };
+
+    const handleDeleteChat = async () => {
+        if (!contact?.publickey) return;
+
+        try {
+            await minimaService.deleteAllMessages(contact.publickey);
+            console.log("✅ Chat deleted successfully");
+            // Navigate back to home/chat list
+            navigate({ to: '/' });
+        } catch (err) {
+            console.error("❌ Failed to delete chat:", err);
+            alert("Failed to delete chat. Please try again.");
+        }
     };
 
     if (loading) {
@@ -289,7 +304,10 @@ function ContactInfoPage() {
                             <Shield size={20} />
                             <span className="font-medium">Block User</span>
                         </button>
-                        <button className="w-full p-4 text-left flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors">
+                        <button
+                            onClick={() => setShowDeleteConfirm(true)}
+                            className="w-full p-4 text-left flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors"
+                        >
                             <Trash2 size={20} />
                             <span className="font-medium">Delete Chat</span>
                         </button>
@@ -297,6 +315,35 @@ function ContactInfoPage() {
                 </div>
 
             </div>
+
+            {/* Delete Confirmation Dialog */}
+            {showDeleteConfirm && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 fade-in duration-200">
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Chat?</h3>
+                        <p className="text-gray-600 mb-6">
+                            This will permanently delete all messages in this conversation. This action cannot be undone.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowDeleteConfirm(false)}
+                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowDeleteConfirm(false);
+                                    handleDeleteChat();
+                                }}
+                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

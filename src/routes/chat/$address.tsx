@@ -84,7 +84,10 @@ function ChatPage() {
     if (c.extradata?.icon) {
       try {
         const decoded = decodeURIComponent(c.extradata.icon);
-        if (decoded.startsWith("data:image")) return decoded;
+        // Check if it's a valid data URL, and not a URL ending in /0x00 (no photo)
+        if (decoded.startsWith("data:image") && !decoded.includes("/0x00")) {
+          return decoded;
+        }
       } catch (err) {
         console.warn("[Avatar] Error decoding icon:", err);
       }
@@ -554,6 +557,12 @@ function ChatPage() {
   const handleSendInvite = async () => {
     if (!contact?.publickey) return;
 
+    // Extra safety check
+    if (appStatus !== 'not_found') {
+      console.warn("Cannot send invite: App status is not 'not_found'");
+      return;
+    }
+
     setInviteSending(true);
     try {
       const username = userName || "A friend"; // Fallback if userName is not set in context
@@ -595,13 +604,20 @@ function ChatPage() {
         </button>
 
         <div
-          className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => navigate({ to: `/ contact - info / ${address} ` })}
+          className={`flex items-center gap-3 flex-1 min-w-0 transition-opacity ${appStatus !== 'checking' && appStatus !== 'not_found'
+            ? 'cursor-pointer hover:opacity-90'
+            : ''
+            }`}
+          onClick={() => {
+            if (appStatus !== 'checking' && appStatus !== 'not_found') {
+              navigate({ to: `/contact-info/${address}` });
+            }
+          }}
         >
           <img
             src={getAvatar(contact)}
             alt="Avatar"
-            className="w-10 h-10 rounded-full object-cover bg-gray-300"
+            className="w-12 h-12 rounded-full object-cover bg-gray-200"
           />
           <div className="flex flex-col leading-tight flex-1 min-w-0">
             <strong className="text-[16px] truncate font-semibold">
@@ -614,17 +630,25 @@ function ChatPage() {
                   CharmChain Verified
                 </span>
               ) : appStatus === 'checking' ? (
-                <span className="text-xs opacity-80">Checking status...</span>
+                <span className="text-xs opacity-80 cursor-default">
+                  Checking status...
+                </span>
               ) : appStatus === 'not_found' ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation(); // Prevent navigating to contact info
-                    setShowInviteDialog(true);
-                  }}
-                  className="text-xs text-red-200 hover:text-white hover:underline transition-colors text-left"
-                >
-                  App not detected (Invite?)
-                </button>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-red-200 cursor-default">
+                    Dapp not detected
+                  </span>
+                  <span className="text-xs text-gray-400">•</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowInviteDialog(true);
+                    }}
+                    className="text-xs text-white font-medium hover:underline transition-colors"
+                  >
+                    Send Invite
+                  </button>
+                </div>
               ) : (
                 <span className="text-xs opacity-80 truncate block">
                   online
