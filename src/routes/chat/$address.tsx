@@ -4,7 +4,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { MDS } from "@minima-global/mds";
 import { appContext } from "../../AppContext";
 import CharmSelector from "../../components/chat/CharmSelector";
-import { Paperclip, Trash2, Info, BarChart, Archive } from "lucide-react";
+import { Paperclip, Trash2, Info, BarChart, Archive, Star } from "lucide-react";
 import MessageBubble from "../../components/chat/MessageBubble";
 import TokenSelector from "../../components/chat/TokenSelector";
 import { minimaService } from "../../services/minima.service";
@@ -64,6 +64,7 @@ function ChatPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [isArchived, setIsArchived] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
 
 
   const [showReadModeWarning, setShowReadModeWarning] = useState(false);
@@ -121,29 +122,36 @@ function ChatPage() {
     fetchContact();
   }, [address]);
 
-  // Check if chat is archived
+  // Check chat status (archived and favorite)
+  const checkChatStatus = async () => {
+    if (!contact?.publickey) return;
+    try {
+      const status = await minimaService.getChatStatus(contact.publickey);
+      setIsArchived(status.archived);
+      setIsFavorite(status.favorite);
+    } catch (err) {
+      console.error("Error checking chat status:", err);
+    }
+  };
+
   useEffect(() => {
-    const checkArchiveStatus = async () => {
-      if (!contact?.publickey) return;
-      try {
-        const status = await minimaService.getChatStatus(contact.publickey);
-        setIsArchived(status.archived);
-      } catch (err) {
-        console.error("[Archive] Error checking archive status:", err);
-      }
+    if (contact?.publickey) {
+      checkChatStatus();
+    }
+  }, [contact]);
+
+  // Listen for archive and favorite status changes
+  useEffect(() => {
+    const handleStatusChange = () => {
+      checkChatStatus();
     };
 
-    checkArchiveStatus();
-
-    // Listen for archive status changes
-    const handleArchiveChange = () => {
-      checkArchiveStatus();
-    };
-
-    minimaService.onArchiveStatusChange(handleArchiveChange);
+    minimaService.onArchiveStatusChange(handleStatusChange);
+    minimaService.onFavoriteStatusChange(handleStatusChange);
 
     return () => {
-      minimaService.removeArchiveStatusCallback(handleArchiveChange);
+      minimaService.removeArchiveStatusCallback(handleStatusChange);
+      minimaService.removeFavoriteStatusCallback(handleStatusChange);
     };
   }, [contact]);
 
@@ -567,6 +575,27 @@ function ChatPage() {
     }
   };
 
+  /* ----------------------------------------------------------------------------
+      TOGGLE FAVORITE
+  ---------------------------------------------------------------------------- */
+  const handleToggleFavorite = async () => {
+    if (!contact?.publickey) return;
+
+    try {
+      if (isFavorite) {
+        await minimaService.unmarkChatAsFavorite(contact.publickey);
+        setIsFavorite(false);
+        console.log("✅ Chat unmarked as favorite");
+      } else {
+        await minimaService.markChatAsFavorite(contact.publickey);
+        setIsFavorite(true);
+        console.log("✅ Chat marked as favorite");
+      }
+    } catch (err) {
+      console.error("❌ Failed to toggle favorite:", err);
+    }
+  };
+
 
   /* ----------------------------------------------------------------------------
       SEND INVITATION
@@ -708,6 +737,16 @@ function ChatPage() {
               >
                 <BarChart size={18} />
                 <span className="font-medium">Chat Info</span>
+              </button>
+              <button
+                className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-gray-100 text-gray-300 md:text-gray-700 transition-colors text-left border-t border-gray-700 md:border-gray-200"
+                onClick={() => {
+                  setShowMenu(false);
+                  handleToggleFavorite();
+                }}
+              >
+                <Star size={18} fill={isFavorite ? "currentColor" : "none"} className={isFavorite ? "text-yellow-500" : ""} />
+                <span className="font-medium">{isFavorite ? 'Unfavorite Chat' : 'Favorite Chat'}</span>
               </button>
               <button
                 className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-blue-50 text-gray-300 md:text-[#0088cc] transition-colors text-left border-t border-gray-700 md:border-gray-200"

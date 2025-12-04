@@ -54,16 +54,23 @@ MDS.init(function (msg) {
                 MDS.log("[ServiceWorker] Amount column added/verified: " + JSON.stringify(alterRes));
             });
 
-            // Create CHAT_STATUS table for managing archived chats and last opened time
+            // Create CHAT_STATUS table for managing archived chats, last opened time, and favorites
             var chatStatusSql = "CREATE TABLE IF NOT EXISTS CHAT_STATUS ( "
                 + "  publickey VARCHAR(512) PRIMARY KEY, "
                 + "  archived BOOLEAN NOT NULL DEFAULT FALSE, "
                 + "  archived_date BIGINT, "
-                + "  last_opened BIGINT "
+                + "  last_opened BIGINT, "
+                + "  favorite BOOLEAN NOT NULL DEFAULT FALSE "
                 + " )";
 
             MDS.sql(chatStatusSql, function (statusRes) {
                 MDS.log("[ServiceWorker] CHAT_STATUS table initialized: " + JSON.stringify(statusRes));
+
+                // Add favorite column to existing tables if it doesn't exist
+                var alterFavoriteSql = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS favorite BOOLEAN NOT NULL DEFAULT FALSE";
+                MDS.sql(alterFavoriteSql, function (alterRes) {
+                    MDS.log("[ServiceWorker] Favorite column added/verified: " + JSON.stringify(alterRes));
+                });
             });
         });
 

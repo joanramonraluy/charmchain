@@ -5,7 +5,7 @@ import { appContext } from "../../AppContext";
 import { minimaService } from "../../services/minima.service";
 import { MDS } from "@minima-global/mds";
 import { useNavigate } from "@tanstack/react-router";
-import { Archive } from "lucide-react";
+import { Archive, Star } from "lucide-react";
 
 interface Contact {
     currentaddress: string;
@@ -30,6 +30,7 @@ interface ChatItem {
     archived?: boolean;
     lastOpened?: number | null;
     unreadCount?: number;
+    favorite?: boolean;
 }
 
 export default function ChatList() {
@@ -39,8 +40,8 @@ export default function ChatList() {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
-    const [activeTab, setActiveTab] = useState<'chats' | 'archived'>('chats');
-    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, publickey: string, archived: boolean } | null>(null);
+    const [activeTab, setActiveTab] = useState<'all' | 'favorites' | 'archived'>('all');
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, publickey: string, archived: boolean, favorite: boolean } | null>(null);
     const navigate = useNavigate();
 
     // Close context menu on click outside
@@ -111,15 +112,23 @@ export default function ChatList() {
             fetchChats();
         };
 
+        // Listen for favorite status changes to refresh the chat list
+        const handleFavoriteStatusChange = () => {
+            console.log('⭐ [ChatList] Favorite status changed, refreshing chat list');
+            fetchChats();
+        };
+
         minimaService.onNewMessage(handleNewMessage);
         minimaService.onMuteStatusChange(handleMuteStatusChange);
         minimaService.onArchiveStatusChange(handleArchiveStatusChange);
+        minimaService.onFavoriteStatusChange(handleFavoriteStatusChange);
 
         return () => {
             isMounted = false;
             minimaService.removeNewMessageCallback(handleNewMessage);
             minimaService.removeMuteStatusCallback(handleMuteStatusChange);
             minimaService.removeArchiveStatusCallback(handleArchiveStatusChange);
+            minimaService.removeFavoriteStatusCallback(handleFavoriteStatusChange);
         };
     }, [loaded]);
 
@@ -134,6 +143,22 @@ export default function ChatList() {
             // No need to fetchChats here as the listener will do it
         } catch (err) {
             console.error("Error archiving chat:", err);
+        }
+    };
+
+    const handleToggleFavorite = async (publickey: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        try {
+            const chat = chats.find(c => c.publickey === publickey);
+            if (chat?.favorite) {
+                await minimaService.unmarkChatAsFavorite(publickey);
+            } else {
+                await minimaService.markChatAsFavorite(publickey);
+            }
+        } catch (err) {
+            console.error("Error toggling favorite:", err);
         }
     };
 
@@ -222,12 +247,18 @@ export default function ChatList() {
         return (chat.unreadCount || 0) > 0 || !chat.lastOpened;
     };
 
-    // Separate archived and active chats
+    // Separate archived, favorite, and active chats
     const activeChats = chats.filter(c => !c.archived);
+    const favoriteChats = chats.filter(c => c.favorite && !c.archived);
     const archivedChats = chats.filter(c => c.archived);
 
     // Get chats to display based on active tab
-    const displayedChats = activeTab === 'chats' ? activeChats : archivedChats;
+    let displayedChats = activeChats;
+    if (activeTab === 'favorites') {
+        displayedChats = favoriteChats;
+    } else if (activeTab === 'archived') {
+        displayedChats = archivedChats;
+    }
 
 
 
@@ -242,10 +273,10 @@ export default function ChatList() {
         }
     };
 
-    const handleContextMenu = (e: React.MouseEvent, publickey: string, archived?: boolean) => {
+    const handleContextMenu = (e: React.MouseEvent, publickey: string, archived?: boolean, favorite?: boolean) => {
         e.preventDefault();
         e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, publickey, archived: !!archived });
+        setContextMenu({ x: e.clientX, y: e.clientY, publickey, archived: !!archived, favorite: !!favorite });
     };
 
     return (
@@ -256,6 +287,16 @@ export default function ChatList() {
                     className="fixed bg-white shadow-lg rounded-lg py-1 z-50 min-w-[160px] border border-gray-200"
                     style={{ top: contextMenu.y, left: contextMenu.x }}
                 >
+                    <button
+                        className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 flex items-center gap-2"
+                        onClick={(e) => {
+                            handleToggleFavorite(contextMenu.publickey, e);
+                            setContextMenu(null);
+                        }}
+                    >
+                        <Star size={16} fill={contextMenu.favorite ? "currentColor" : "none"} />
+                        {contextMenu.favorite ? "Unfavorite Chat" : "Favorite Chat"}
+                    </button>
                     <button
                         className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 flex items-center gap-2"
                         onClick={(e) => {
@@ -277,14 +318,26 @@ export default function ChatList() {
             <div className="bg-white border-b border-gray-200 flex-shrink-0">
                 <div className="flex">
                     <button
-                        onClick={() => setActiveTab('chats')}
-                        className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${activeTab === 'chats'
+                        onClick={() => setActiveTab('all')}
+                        className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${activeTab === 'all'
                             ? 'text-[#0088cc]'
                             : 'text-gray-500 hover:text-gray-700'
                             }`}
                     >
-                        Chats {activeChats.length > 0 && `(${activeChats.length})`}
-                        {activeTab === 'chats' && (
+                        All {activeChats.length > 0 && `(${activeChats.length})`}
+                        {activeTab === 'all' && (
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0088cc]"></div>
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('favorites')}
+                        className={`flex-1 py-3 px-4 text-sm font-medium transition-colors relative ${activeTab === 'favorites'
+                            ? 'text-[#0088cc]'
+                            : 'text-gray-500 hover:text-gray-700'
+                            }`}
+                    >
+                        ⭐ Favorites {favoriteChats.length > 0 && `(${favoriteChats.length})`}
+                        {activeTab === 'favorites' && (
                             <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#0088cc]"></div>
                         )}
                     </button>
@@ -318,7 +371,7 @@ export default function ChatList() {
                                         },
                                     })
                                 }
-                                onContextMenu={(e) => handleContextMenu(e, chat.publickey, chat.archived)}
+                                onContextMenu={(e) => handleContextMenu(e, chat.publickey, chat.archived, chat.favorite)}
                                 className={`relative rounded-lg shadow-sm border p-3 hover:shadow-md cursor-pointer transition-all active:bg-gray-50 ${isNewChat(chat)
                                     ? 'bg-blue-50 border-l-4 border-blue-500'
                                     : 'bg-white border-gray-200'
@@ -346,8 +399,11 @@ export default function ChatList() {
                                     {/* Chat Info */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-baseline justify-between gap-2">
-                                            <h3 className="font-semibold text-gray-900 truncate">
+                                            <h3 className="font-semibold text-gray-900 truncate flex items-center gap-1.5">
                                                 {getName(chat)}
+                                                {chat.favorite && (
+                                                    <Star size={14} fill="#fbbf24" stroke="#f59e0b" className="flex-shrink-0" />
+                                                )}
                                                 {(chat.unreadCount || 0) > 0 && (
                                                     <span className="ml-2 text-xs bg-blue-500 text-white px-2 py-0.5 rounded-full">
                                                         {chat.unreadCount}

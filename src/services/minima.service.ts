@@ -35,6 +35,7 @@ class MinimaService {
     private newMessageCallbacks: MessageCallback[] = [];
     private muteStatusCallbacks: MuteStatusCallback[] = [];
     private archiveStatusCallbacks: (() => void)[] = [];
+    private favoriteStatusCallbacks: (() => void)[] = [];
     private initialized = false;
 
     constructor() {
@@ -92,7 +93,12 @@ class MinimaService {
                 publickey VARCHAR(512) PRIMARY KEY,
                 last_read BIGINT DEFAULT 0,
                 unread_count INT DEFAULT 0,
-                app_installed BOOLEAN DEFAULT FALSE
+                app_installed BOOLEAN DEFAULT FALSE,
+                archived BOOLEAN DEFAULT FALSE,
+                archived_date BIGINT,
+                last_opened BIGINT,
+                muted BOOLEAN DEFAULT FALSE,
+                favorite BOOLEAN DEFAULT FALSE
             )`;
 
             MDS.sql(createStatusTable, (res: any) => {
@@ -100,14 +106,31 @@ class MinimaService {
                     console.error("❌ [DB] Failed to create CHAT_STATUS table:", res.error);
                 } else {
                     console.log("✅ [DB] CHAT_STATUS table initialized");
-                    // Add app_installed column if it doesn't exist (migration)
-                    const alterSql = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS app_installed BOOLEAN DEFAULT FALSE";
-                    MDS.sql(alterSql, (alterRes: any) => {
-                        if (!alterRes.status) {
-                            // console.warn("⚠️ [DB] Could not add app_installed column (may already exist):", alterRes.error);
-                        } else {
-                            console.log("✅ [DB] app_installed column added/verified");
-                        }
+                    // Add columns if they don't exist (migration for existing databases)
+                    const alterSql1 = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS app_installed BOOLEAN DEFAULT FALSE";
+                    const alterSql2 = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE";
+                    const alterSql3 = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS archived_date BIGINT";
+                    const alterSql4 = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS last_opened BIGINT";
+                    const alterSql5 = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS muted BOOLEAN DEFAULT FALSE";
+                    const alterSql6 = "ALTER TABLE CHAT_STATUS ADD COLUMN IF NOT EXISTS favorite BOOLEAN DEFAULT FALSE";
+
+                    MDS.sql(alterSql1, (alterRes: any) => {
+                        if (alterRes.status) console.log("✅ [DB] app_installed column added/verified");
+                    });
+                    MDS.sql(alterSql2, (alterRes: any) => {
+                        if (alterRes.status) console.log("✅ [DB] archived column added/verified");
+                    });
+                    MDS.sql(alterSql3, (alterRes: any) => {
+                        if (alterRes.status) console.log("✅ [DB] archived_date column added/verified");
+                    });
+                    MDS.sql(alterSql4, (alterRes: any) => {
+                        if (alterRes.status) console.log("✅ [DB] last_opened column added/verified");
+                    });
+                    MDS.sql(alterSql5, (alterRes: any) => {
+                        if (alterRes.status) console.log("✅ [DB] muted column added/verified");
+                    });
+                    MDS.sql(alterSql6, (alterRes: any) => {
+                        if (alterRes.status) console.log("✅ [DB] favorite column added/verified");
                     });
                 }
             });
@@ -295,18 +318,68 @@ class MinimaService {
         });
     }
 
-    getChatStatus(publickey: string): Promise<{ archived: boolean; lastOpened: number | null }> {
+    markChatAsFavorite(publickey: string): Promise<void> {
+        return new Promise((resolve) => {
+            const sql = `
+                MERGE INTO CHAT_STATUS (publickey, favorite)
+                KEY (publickey)
+                VALUES ('${publickey}', TRUE)
+            `;
+            MDS.sql(sql, (res: any) => {
+                if (res.status) {
+                    console.log("⭐ [DB] Chat marked as favorite:", publickey);
+                    this.notifyFavoriteStatusChange();
+                } else {
+                    console.error("❌ [DB] Failed to mark chat as favorite:", res.error);
+                }
+                resolve();
+            });
+        });
+    }
+
+    unmarkChatAsFavorite(publickey: string): Promise<void> {
+        return new Promise((resolve) => {
+            const sql = `UPDATE CHAT_STATUS SET favorite=FALSE WHERE publickey='${publickey}'`;
+            MDS.sql(sql, (res: any) => {
+                if (res.status) {
+                    console.log("☆ [DB] Chat unmarked as favorite:", publickey);
+                    this.notifyFavoriteStatusChange();
+                } else {
+                    console.error("❌ [DB] Failed to unmark chat as favorite:", res.error);
+                }
+                resolve();
+            });
+        });
+    }
+
+    isChatFavorite(publickey: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const sql = `SELECT favorite FROM CHAT_STATUS WHERE publickey='${publickey}'`;
+            MDS.sql(sql, (res: any) => {
+                if (res.status && res.rows && res.rows.length > 0) {
+                    const val = res.rows[0].FAVORITE;
+                    const isFavorite = val === true || val === 'TRUE' || val === 'true' || val === 1;
+                    resolve(isFavorite);
+                } else {
+                    resolve(false);
+                }
+            });
+        });
+    }
+
+    getChatStatus(publickey: string): Promise<{ archived: boolean; lastOpened: number | null; favorite: boolean }> {
         return new Promise((resolve) => {
             const sql = `SELECT * FROM CHAT_STATUS WHERE publickey='${publickey}'`;
             MDS.sql(sql, (res: any) => {
                 if (!res.status || !res.rows || res.rows.length === 0) {
-                    resolve({ archived: false, lastOpened: null });
+                    resolve({ archived: false, lastOpened: null, favorite: false });
                     return;
                 }
                 const row = res.rows[0];
                 resolve({
                     archived: row.ARCHIVED === true || row.ARCHIVED === 'TRUE' || row.ARCHIVED === 'true' || row.ARCHIVED === 1,
-                    lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null
+                    lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null,
+                    favorite: row.FAVORITE === true || row.FAVORITE === 'TRUE' || row.FAVORITE === 'true' || row.FAVORITE === 1 || false
                 });
             });
         });
@@ -371,7 +444,8 @@ class MinimaService {
                 SELECT 
                     m.*,
                     s.archived,
-                    s.last_opened
+                    s.last_opened,
+                    s.favorite
                 FROM CHAT_MESSAGES m
                 LEFT JOIN CHAT_STATUS s ON m.publickey = s.publickey
                 ORDER BY m.date DESC
@@ -422,6 +496,7 @@ class MinimaService {
                     username: row.USERNAME,
                     archived: row.ARCHIVED === true || row.ARCHIVED === 'TRUE' || row.ARCHIVED === 'true' || row.ARCHIVED === 1 || false,
                     lastOpened: row.LAST_OPENED ? Number(row.LAST_OPENED) : null,
+                    favorite: row.FAVORITE === true || row.FAVORITE === 'TRUE' || row.FAVORITE === 'true' || row.FAVORITE === 1 || false,
                     unreadCount: 0 // Initialize unread counter
                 });
             }
@@ -446,13 +521,17 @@ class MinimaService {
             }
         });
 
-        // Convert map to array and sort: active chats first, then archived
+        // Convert map to array and sort: favorites first, then active chats, then archived
         const chats = Array.from(chatMap.values()).sort((a, b) => {
             // Archived chats go to the bottom
             if (a.archived !== b.archived) {
                 return a.archived ? 1 : -1;
             }
-            // Within same category, sort by date
+            // Within active chats, favorites come first
+            if (!a.archived && !b.archived && a.favorite !== b.favorite) {
+                return a.favorite ? -1 : 1;
+            }
+            // Within same category (favorite/non-favorite), sort by date
             return b.lastMessageDate - a.lastMessageDate;
         });
 
@@ -509,6 +588,24 @@ class MinimaService {
 
     private notifyArchiveStatusChange() {
         this.archiveStatusCallbacks.forEach(cb => cb());
+    }
+
+    /* ----------------------------------------------------------------------------
+       FAVORITE STATUS CALLBACKS
+    ---------------------------------------------------------------------------- */
+    onFavoriteStatusChange(cb: () => void) {
+        this.favoriteStatusCallbacks.push(cb);
+    }
+
+    removeFavoriteStatusCallback(cb: () => void) {
+        const index = this.favoriteStatusCallbacks.indexOf(cb);
+        if (index > -1) {
+            this.favoriteStatusCallbacks.splice(index, 1);
+        }
+    }
+
+    private notifyFavoriteStatusChange() {
+        this.favoriteStatusCallbacks.forEach(cb => cb());
     }
 
     /**
