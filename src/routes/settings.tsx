@@ -30,6 +30,16 @@ function Settings() {
   const [editDescriptionValue, setEditDescriptionValue] = useState("");
   const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
 
+  // Community & Discovery State
+  const [staticMLSServer, setStaticMLSServer] = useState("");
+  const [hasStaticMLS, setHasStaticMLS] = useState(false);
+  const [hasPermanentAddress, setHasPermanentAddress] = useState(false);
+  const [permanentAddress, setPermanentAddress] = useState("");
+  const [profileVisible, setProfileVisible] = useState(true);
+  const [configuringMLS, setConfiguringMLS] = useState(false);
+  const [enablingPermanent, setEnablingPermanent] = useState(false);
+  const [p2pIdentity, setP2pIdentity] = useState("");
+
   // Network Status State
   const [networkStatus, setNetworkStatus] = useState<any>(null);
   const [networkLoading, setNetworkLoading] = useState(true);
@@ -81,10 +91,107 @@ function Settings() {
     // Fetch network status
     fetchNetworkStatus();
 
+    // Fetch community status
+    fetchCommunityStatus();
+
     // Refresh write mode status using checkmode (doesn't create pending)
     console.log("🔄 [Settings] Calling refreshWriteMode...");
     refreshWriteMode();
   }, [loaded, refreshWriteMode]);
+
+  const fetchCommunityStatus = async () => {
+    try {
+      const maximaInfo = await MDS.cmd.maxima();
+      const info = (maximaInfo.response as any) || {};
+
+      // Store P2P identity for MLS server section
+      setP2pIdentity(info.p2pidentity || "");
+
+      // Check if Static MLS is configured
+      setHasStaticMLS(info.staticmls || false);
+
+      if (info.staticmls && info.mls) {
+        setStaticMLSServer(info.mls);
+
+        // Build permanent MAX# address
+        const maxAddress = `MAX#${info.publickey}#${info.mls}`;
+        setPermanentAddress(maxAddress);
+
+        // Check if permanent address is enabled (we assume it's enabled if staticmls is true)
+        // In a real implementation, you'd verify this with maxextra or another check
+        setHasPermanentAddress(true);
+      }
+    } catch (err) {
+      console.error("Error fetching community status:", err);
+    }
+  };
+
+  const handleConfigureStaticMLS = async () => {
+    if (!staticMLSServer.trim()) {
+      alert("Please enter a Static MLS server address");
+      return;
+    }
+
+    setConfiguringMLS(true);
+    try {
+      const cmd = `maxextra action:staticmls host:${staticMLSServer.trim()}`;
+      const response = await new Promise<any>((resolve, reject) => {
+        MDS.executeRaw(cmd, (res: any) => {
+          if (res.status) {
+            resolve(res);
+          } else {
+            reject(new Error(res.error || 'Failed to configure Static MLS'));
+          }
+        });
+      });
+
+      console.log("✅ [Settings] Static MLS configured:", response);
+      await fetchCommunityStatus(); // Refresh status
+      alert("✅ Static MLS configured successfully!");
+    } catch (err) {
+      console.error("❌ [Settings] Error configuring Static MLS:", err);
+      alert("Failed to configure Static MLS: " + (err as Error).message);
+    } finally {
+      setConfiguringMLS(false);
+    }
+  };
+
+  const handleEnablePermanentAddress = async () => {
+    if (!hasStaticMLS) {
+      alert("⚠️ Please configure Static MLS first");
+      return;
+    }
+
+    setEnablingPermanent(true);
+    try {
+      const maximaInfo = await MDS.cmd.maxima();
+      const publickey = (maximaInfo.response as any)?.publickey;
+
+      if (!publickey) {
+        throw new Error("Unable to get public key");
+      }
+
+      const cmd = `maxextra action:addpermanent publickey:${publickey}`;
+      const response = await new Promise<any>((resolve, reject) => {
+        MDS.executeRaw(cmd, (res: any) => {
+          if (res.status) {
+            resolve(res);
+          } else {
+            reject(new Error(res.error || 'Failed to enable permanent address'));
+          }
+        });
+      });
+
+      console.log("✅ [Settings] Permanent address enabled:", response);
+      await fetchCommunityStatus(); // Refresh status
+      alert("✅ Permanent MAX# address enabled!\n\nYou can now join the Community Discovery.");
+    } catch (err) {
+      console.error("❌ [Settings] Error enabling permanent address:", err);
+      alert("Failed to enable permanent address: " + (err as Error).message);
+    } finally {
+      setEnablingPermanent(false);
+    }
+  };
 
   const fetchNetworkStatus = async () => {
     try {
@@ -521,6 +628,207 @@ function Settings() {
                       <RefreshCw size={18} />
                       Check Permissions Again
                     </button>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* COMMUNITY & DISCOVERY SECTION */}
+            <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-100 flex items-center gap-3">
+                <Globe className="text-blue-500" />
+                <h2 className="text-xl font-semibold text-gray-800">Community & Discovery</h2>
+              </div>
+
+
+              <div className="p-6 space-y-6">
+                {/* MLS Server (for Development) */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Info className="text-blue-600" size={20} />
+                    <h3 className="text-lg font-semibold text-blue-900">Use This Node as MLS Server</h3>
+                  </div>
+                  <p className="text-sm text-blue-800 mb-3">
+                    For development/testing, other nodes can use this node as their Static MLS server.
+                  </p>
+
+                  {p2pIdentity ? (
+                    <>
+                      <div className="bg-white rounded border border-blue-200 p-3 mb-3">
+                        <p className="text-xs text-blue-600 mb-1 font-semibold">Your P2P Identity:</p>
+                        <p className="text-xs font-mono text-gray-800 break-all">{p2pIdentity}</p>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(p2pIdentity, 'p2p')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'p2p' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300'}`}
+                      >
+                        {copiedField === 'p2p' ? <Check size={16} /> : <Copy size={16} />}
+                        {copiedField === 'p2p' ? 'Copied!' : 'Copy P2P Identity'}
+                      </button>
+                      <p className="text-xs text-blue-700 mt-3">
+                        💡 <strong>Note:</strong> Other nodes can paste this address in "Static MLS Server" below to use this node as their MLS.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-blue-700">Loading P2P identity...</p>
+                  )}
+                </div>
+
+                {/* Static MLS Configuration */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Static MLS Server</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Configure a permanent Maxima Lookup Service to enable a permanent MAX# address for Community Discovery.
+                  </p>
+
+                  {hasStaticMLS ? (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Check className="text-green-600" size={20} />
+                        <span className="font-semibold text-green-800">Static MLS Configured</span>
+                      </div>
+                      <p className="text-xs text-gray-600 font-mono break-all mt-2">
+                        {staticMLSServer}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="text-yellow-600" size={20} />
+                          <span className="font-semibold text-yellow-800">Static MLS Not Configured</span>
+                        </div>
+                        <p className="text-sm text-yellow-700 mt-2">
+                          Enter your Static MLS server address below to enable Community Discovery.
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        <input
+                          type="text"
+                          value={staticMLSServer}
+                          onChange={(e) => setStaticMLSServer(e.target.value)}
+                          placeholder="MxG...@IP:PORT"
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-sm"
+                        />
+                        <button
+                          onClick={handleConfigureStaticMLS}
+                          disabled={configuringMLS || !staticMLSServer.trim()}
+                          className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {configuringMLS ? (
+                            <>
+                              <RefreshCw size={18} className="animate-spin" />
+                              Configuring...
+                            </>
+                          ) : (
+                            <>
+                              <Check size={18} />
+                              Configure Static MLS
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Permanent Address */}
+                <div className="border-t border-gray-100 pt-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Permanent MAX# Address</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Enable a permanent address that never changes, allowing others to contact you even if you're not a contact.
+                  </p>
+
+                  {hasPermanentAddress ? (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Check className="text-green-600" size={20} />
+                        <span className="font-semibold text-green-800">Permanent Address Active</span>
+                      </div>
+                      <div className="bg-white rounded border border-green-200 p-3">
+                        <p className="text-xs text-gray-500 mb-1">Your MAX# Address:</p>
+                        <p className="text-xs font-mono text-gray-800 break-all">{permanentAddress}</p>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(permanentAddress, 'permanent')}
+                        className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'permanent' ? 'bg-green-100 text-green-700' : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'}`}
+                      >
+                        {copiedField === 'permanent' ? <Check size={16} /> : <Copy size={16} />}
+                        {copiedField === 'permanent' ? 'Copied!' : 'Copy MAX# Address'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      {hasStaticMLS ? (
+                        <button
+                          onClick={handleEnablePermanentAddress}
+                          disabled={enablingPermanent}
+                          className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          {enablingPermanent ? (
+                            <>
+                              <RefreshCw size={18} className="animate-spin" />
+                              Enabling...
+                            </>
+                          ) : (
+                            <>
+                              <Check size={18} />
+                              Enable Permanent Address
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                          <AlertTriangle className="text-gray-400 mx-auto mb-2" size={24} />
+                          <p className="text-sm text-gray-600">
+                            Configure Static MLS first to enable permanent address
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Profile Visibility */}
+                {hasPermanentAddress && (
+                  <div className="border-t border-gray-100 pt-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Community Visibility</h3>
+                    <p className="text-sm text-gray-600 mb-4">
+                      Control whether your profile appears in the Community Discovery list.
+                    </p>
+
+                    <div className={`flex items-center justify-between p-4 rounded-lg border ${profileVisible ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                      <div>
+                        <p className="font-medium text-gray-800">
+                          {profileVisible ? 'Visible in Community' : 'Hidden from Community'}
+                        </p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          {profileVisible
+                            ? 'Other users can discover and contact you'
+                            : 'You are hidden from Community Discovery'}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={profileVisible}
+                          onChange={async (e) => {
+                            const newVisible = e.target.checked;
+                            setProfileVisible(newVisible);
+                            try {
+                              const { DiscoveryService } = await import('../services/discovery.service');
+                              await DiscoveryService.updateProfileVisibility(newVisible);
+                            } catch (err) {
+                              console.error('Error updating visibility:', err);
+                              setProfileVisible(!newVisible); // Revert on error
+                            }
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>

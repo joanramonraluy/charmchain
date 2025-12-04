@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { DiscoveryService, UserProfile } from '../services/discovery.service'
 import { maximaDiscoveryService } from '../services/maxima-discovery.service'
+import { maximaCommunityProtocolService } from '../services/maxima-community-protocol.service'
 import { UserPlus, Search, Globe, X, RefreshCw, Edit } from 'lucide-react'
 
 export const Route = createFileRoute('/discovery')({
@@ -11,13 +12,15 @@ export const Route = createFileRoute('/discovery')({
 function DiscoveryPage() {
     const [profiles, setProfiles] = useState<UserProfile[]>([])
     const [loading, setLoading] = useState(true)
+    const [pinging, setPinging] = useState(false)
     const [registering, setRegistering] = useState(false)
     const [showModal, setShowModal] = useState(false)
     const [username, setUsername] = useState('')
-    const [description, setDescription] = useState('')
     const [previousCount, setPreviousCount] = useState(0)
     const [showNotification, setShowNotification] = useState(false)
     const [notificationMessage, setNotificationMessage] = useState('')
+    const [totalFound, setTotalFound] = useState(0)
+    const [onlineCount, setOnlineCount] = useState(0)
 
     useEffect(() => {
         loadData()
@@ -41,22 +44,54 @@ function DiscoveryPage() {
 
     const loadData = async () => {
         setLoading(true)
+        setPinging(false)
         try {
+            // 1. Fetch all profiles from blockchain (only visible ones)
             const fetchedProfiles = await DiscoveryService.getProfiles()
-            setProfiles(fetchedProfiles)
+            setTotalFound(fetchedProfiles.length)
+            console.log(`📡 [Discovery] Found ${fetchedProfiles.length} profiles on blockchain`)
+
+            // 2. Ping all profiles to check availability
+            setPinging(true)
+            setLoading(false)
+
+            const pingResults = await Promise.allSettled(
+                fetchedProfiles.map(async (profile) => {
+                    if (!profile.maxAddress) {
+                        return { profile, online: false }
+                    }
+
+                    const isOnline = await maximaCommunityProtocolService.pingProfile(
+                        profile.maxAddress,
+                        3000 // 3 second timeout
+                    )
+
+                    return { profile, online: isOnline }
+                })
+            )
+
+            // 3. Filter only online profiles
+            const onlineProfiles = pingResults
+                .filter(result => result.status === 'fulfilled' && result.value.online)
+                .map(result => (result as PromiseFulfilledResult<{ profile: UserProfile, online: boolean }>).value.profile)
+
+            console.log(`✅ [Discovery] ${onlineProfiles.length} of ${fetchedProfiles.length} profiles are online`)
+            setOnlineCount(onlineProfiles.length)
+            setProfiles(onlineProfiles)
 
             // Check if new profiles appeared
-            if (previousCount > 0 && fetchedProfiles.length > previousCount) {
-                const newCount = fetchedProfiles.length - previousCount
-                setNotificationMessage(`🎉 ${newCount} new profile${newCount > 1 ? 's' : ''} found!`)
+            if (previousCount > 0 && onlineProfiles.length > previousCount) {
+                const newCount = onlineProfiles.length - previousCount
+                setNotificationMessage(`🎉 ${newCount} new online profile${newCount > 1 ? 's' : ''} found!`)
                 setShowNotification(true)
                 setTimeout(() => setShowNotification(false), 3000)
             }
-            setPreviousCount(fetchedProfiles.length)
+            setPreviousCount(onlineProfiles.length)
         } catch (e) {
             console.error(e)
         } finally {
             setLoading(false)
+            setPinging(false)
         }
     }
 
@@ -68,13 +103,13 @@ function DiscoveryPage() {
 
         setRegistering(true)
         try {
-            await DiscoveryService.registerProfile(username.trim(), description.trim())
+            // registerProfile will validate Static MLS internally
+            await DiscoveryService.registerProfile(username.trim(), '', true) // Empty description, visibility true
             alert(isRegistered
                 ? "Profile updated successfully! 📝\n\nChanges will appear after the transaction is mined."
                 : "Profile registered successfully! ⛏️\n\nYour profile will appear in the list once the transaction is mined (usually 1-3 minutes). Click the refresh button to check.")
             setShowModal(false)
             setUsername('')
-            setDescription('')
             // Optional: reload data immediately to show pending? No, wait for mine.
         } catch (e) {
             console.error("Registration error:", e)
@@ -91,7 +126,6 @@ function DiscoveryPage() {
         const myProfile = profiles.find(p => p.isMyProfile)
         if (myProfile) {
             setUsername(myProfile.username)
-            setDescription(myProfile.description)
             setShowModal(true)
         }
     }
@@ -146,54 +180,76 @@ function DiscoveryPage() {
             <div className="flex-1 overflow-y-auto">
                 {loading ? (
                     <div className="flex justify-center items-center h-64">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600">Loading profiles from blockchain...</p>
+                        </div>
+                    </div>
+                ) : pinging ? (
+                    <div className="flex justify-center items-center h-64">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                            <p className="text-gray-600 font-medium">Checking availability...</p>
+                            <p className="text-gray-500 text-sm mt-2">Pinging {totalFound} profiles</p>
+                        </div>
                     </div>
                 ) : profiles.length === 0 ? (
                     <div className="text-center py-20">
                         <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                             <Search className="text-blue-400" size={32} />
                         </div>
-                        <h3 className="text-lg font-medium text-gray-900">No profiles found</h3>
-                        <p className="text-gray-500 mt-2">Be the first to join the community!</p>
+                        <h3 className="text-lg font-medium text-gray-900">No online profiles found</h3>
+                        <p className="text-gray-500 mt-2">
+                            {totalFound > 0
+                                ? `Found ${totalFound} profile${totalFound > 1 ? 's' : ''} but none are currently online`
+                                : 'Be the first to join the community!'}
+                        </p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
-                        {profiles.map((profile) => (
-                            <div key={profile.pubkey} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
-                                            {profile.username.charAt(0).toUpperCase()}
+                    <>
+                        <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+                            <p className="text-sm text-gray-600">
+                                Showing <span className="font-bold text-blue-600">{onlineCount}</span> of <span className="font-bold">{totalFound}</span> online now
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
+                            {profiles.map((profile) => (
+                                <div key={profile.pubkey} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
+                                                {profile.username.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-gray-900">{profile.username}</h3>
+                                                <p className="text-xs text-gray-400 font-mono truncate w-32" title={profile.pubkey}>
+                                                    {profile.pubkey.substring(0, 10)}...
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div>
-                                            <h3 className="font-bold text-gray-900">{profile.username}</h3>
-                                            <p className="text-xs text-gray-400 font-mono truncate w-32" title={profile.pubkey}>
-                                                {profile.pubkey.substring(0, 10)}...
-                                            </p>
-                                        </div>
+                                        {!profile.isMyProfile && (
+                                            <button className="text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors" title="Add Contact">
+                                                <UserPlus size={20} />
+                                            </button>
+                                        )}
                                     </div>
-                                    {!profile.isMyProfile && (
-                                        <button className="text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors" title="Add Contact">
-                                            <UserPlus size={20} />
-                                        </button>
-                                    )}
-                                </div>
 
-                                {profile.description && (
-                                    <p className="mt-4 text-gray-600 text-sm line-clamp-2">
-                                        {profile.description}
-                                    </p>
-                                )}
-
-                                <div className="mt-4 pt-4 border-t border-gray-50 flex justify-between items-center text-xs text-gray-400">
-                                    <span>Joined: {new Date(Number(profile.lastSeen) * 1000).toLocaleDateString()}</span>
-                                    {profile.isMyProfile && (
-                                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">You</span>
+                                    {profile.description && (
+                                        <p className="mt-4 text-gray-600 text-sm line-clamp-2">
+                                            {profile.description}
+                                        </p>
                                     )}
+
+                                    <div className="mt-4 pt-4 border-t border-gray-50 flex justify-between items-center text-xs text-gray-400">
+                                        <span>Joined: {new Date(Number(profile.lastSeen) * 1000).toLocaleDateString()}</span>
+                                        {profile.isMyProfile && (
+                                            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">You</span>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    </>
                 )}
             </div>
 
@@ -228,17 +284,12 @@ function DiscoveryPage() {
                                 />
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-1">
-                                    Description (optional)
-                                </label>
-                                <textarea
-                                    value={description}
-                                    onChange={(e) => setDescription(e.target.value)}
-                                    placeholder="Tell others about yourself"
-                                    rows={3}
-                                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none placeholder-gray-400"
-                                />
+                            <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3 text-sm">
+                                <p className="text-blue-200 font-medium mb-1">⚡ Requirements:</p>
+                                <p className="text-blue-300 text-xs">
+                                    You must have a <strong>Static MLS configured</strong> to join the Community.
+                                    This ensures you have a permanent MAX# address for others to contact you.
+                                </p>
                             </div>
 
                             <div className="flex gap-3 pt-2">

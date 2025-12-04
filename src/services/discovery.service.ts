@@ -16,10 +16,12 @@ export interface UserProfile {
     username: string;
     pubkey: string;
     description: string;
-    timestamp: number; // Unix timestamp from STATE[4]
-    lastSeen: number; // Block creation time
+    timestamp: number;
+    lastSeen: number;
     isMyProfile: boolean;
-    coinid?: string; // UTXO reference
+    maxAddress?: string; // MAX# permanent address from STATE[4]
+    visible?: boolean;   // Visibility flag from STATE[5]
+    coinid?: string;     // UTXO reference
 }
 
 // Cache the registry address to avoid calling newscript multiple times
@@ -71,7 +73,28 @@ export const DiscoveryService = {
         });
     },
 
-    registerProfile: async (username: string, description: string) => {
+    registerProfile: async (username: string, description: string, visible: boolean = true) => {
+        // Validate that user has Static MLS configured
+        const maximaInfo = await new Promise<any>((resolve, reject) => {
+            MDS.cmd.maxima((res: any) => {
+                if (res.status) {
+                    resolve(res.response);
+                } else {
+                    reject('Failed to get Maxima info');
+                }
+            });
+        });
+
+        if (!maximaInfo.staticmls) {
+            throw new Error('Static MLS required. Please configure a Static MLS server before registering.');
+        }
+
+        // Get permanent MAX# address
+        const myPubkey = maximaInfo.publickey;
+        const staticMLS = maximaInfo.mls;
+        const maxAddress = `MAX#${myPubkey}#${staticMLS}`;
+
+        console.log('📍 [Discovery] Registering with MAX# address:', maxAddress);
         const address = await DiscoveryService.getRegistryAddress();
 
         // Get our public key using getaddress
@@ -98,13 +121,19 @@ export const DiscoveryService = {
 
         // Pubkey is already HEX (0x...)
 
+        // Encode MAX# address and visibility
+        const maxAddressHex = DiscoveryService.utf8ToHex(maxAddress);
+        const visibleValue = visible ? '1' : '0';
+
         // Send transaction
-        // STATE(0) = "CHARM_PROFILE_V1" (Marker)
-        // STATE(1) = Username
+        // STATE(0) = Username
+        // STATE(1) = Description
         // STATE(2) = Public Key (Ownership)
-        // STATE(3) = Description
-        // STATE(4) = Timestamp (unix seconds)
-        const cmd = `send amount:0.01 address:${address} state:{"0":"${markerHex}","1":"${usernameHex}","2":"${pubkey}","3":"${descriptionHex}","4":"${timestampHex}"}`;
+        // STATE(3) = Timestamp (unix seconds)
+        // STATE(4) = MAX# Permanent Address
+        // STATE(5) = Visible (0 or 1)
+        // STATE(99) = "CHARM_PROFILE_V1" (Marker)
+        const cmd = `send amount:0.01 address:${address} state:{"0":"${usernameHex}","1":"${descriptionHex}","2":"${pubkey}","3":"${timestampHex}","4":"${maxAddressHex}","5":"${visibleValue}","99":"${markerHex}"}`;
 
         // Send blockchain transaction
         await new Promise((resolve, reject) => {
@@ -187,22 +216,30 @@ export const DiscoveryService = {
                 const coins = res.response || [];
                 const profiles = coins
                     .filter((c: any) => {
-                        const state0 = c.state?.find((s: any) => s.port === 0);
-                        return state0?.data?.toUpperCase() === markerHex.toUpperCase();
+                        const state99 = c.state?.find((s: any) => s.port === 99);
+                        const state5 = c.state?.find((s: any) => s.port === 5);
+                        // Filter by marker and visibility
+                        const isProfileCoin = state99?.data?.toUpperCase() === markerHex.toUpperCase();
+                        const isVisible = state5?.data === '1' || state5?.data === '0x01';
+                        return isProfileCoin && isVisible;
                     })
                     .map((c: any) => {
+                        const state0 = c.state.find((s: any) => s.port === 0);
                         const state1 = c.state.find((s: any) => s.port === 1);
                         const state2 = c.state.find((s: any) => s.port === 2);
                         const state3 = c.state.find((s: any) => s.port === 3);
                         const state4 = c.state.find((s: any) => s.port === 4);
+                        const state5 = c.state.find((s: any) => s.port === 5);
 
-                        const timestampStr = state4 ? DiscoveryService.hexToUtf8(state4.data) : '0';
+                        const timestampStr = state3 ? DiscoveryService.hexToUtf8(state3.data) : '0';
                         const timestamp = parseInt(timestampStr) || 0;
 
                         return {
-                            username: state1 ? DiscoveryService.hexToUtf8(state1.data) : 'Unknown',
+                            username: state0 ? DiscoveryService.hexToUtf8(state0.data) : 'Unknown',
                             pubkey: state2?.data || '',
-                            description: state3 ? DiscoveryService.hexToUtf8(state3.data) : '',
+                            description: state1 ? DiscoveryService.hexToUtf8(state1.data) : '',
+                            maxAddress: state4 ? DiscoveryService.hexToUtf8(state4.data) : undefined,
+                            visible: state5?.data === '1' || state5?.data === '0x01',
                             timestamp,
                             lastSeen: c.created || 0,
                             isMyProfile: myCoinIds.has(c.coinid),
@@ -218,5 +255,27 @@ export const DiscoveryService = {
         const uniqueProfiles = DiscoveryService.deduplicateByUsername(currentProfiles);
 
         return uniqueProfiles;
+    },
+
+    /**
+     * Update profile visibility (requires spending and recreating the coin)
+     */
+    updateProfileVisibility: async (visible: boolean) => {
+        // Get current profile
+        const profiles = await DiscoveryService.getProfiles();
+        const myProfile = profiles.find(p => p.isMyProfile);
+
+        if (!myProfile || !myProfile.coinid) {
+            throw new Error('No profile found to update');
+        }
+
+        // Re-register with new visibility
+        await DiscoveryService.registerProfile(
+            myProfile.username,
+            myProfile.description,
+            visible
+        );
+
+        console.log(`✅ [Discovery] Profile visibility updated to: ${visible}`);
     }
 };

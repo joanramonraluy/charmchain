@@ -72,6 +72,39 @@ MDS.init(function (msg) {
                     MDS.log("[ServiceWorker] Favorite column added/verified: " + JSON.stringify(alterRes));
                 });
             });
+
+            // Create MY_PROFILE table for extended community profile
+            var myProfileSql = "CREATE TABLE IF NOT EXISTS MY_PROFILE ( "
+                + "  id INT PRIMARY KEY DEFAULT 1, "
+                + "  avatar TEXT, "
+                + "  tags TEXT, "
+                + "  bio_extended TEXT, "
+                + "  social_links TEXT, "
+                + "  location TEXT, "
+                + "  last_updated BIGINT "
+                + " )";
+
+            MDS.sql(myProfileSql, function (profileRes) {
+                MDS.log("[ServiceWorker] MY_PROFILE table initialized: " + JSON.stringify(profileRes));
+            });
+
+            // Create PROFILE_CACHE table for caching other users' profiles
+            var profileCacheSql = "CREATE TABLE IF NOT EXISTS PROFILE_CACHE ( "
+                + "  publickey VARCHAR(512) PRIMARY KEY, "
+                + "  online_status VARCHAR(20), "
+                + "  last_ping BIGINT, "
+                + "  last_pong BIGINT, "
+                + "  avatar TEXT, "
+                + "  tags TEXT, "
+                + "  bio_extended TEXT, "
+                + "  social_links TEXT, "
+                + "  location TEXT, "
+                + "  fetched_at BIGINT "
+                + " )";
+
+            MDS.sql(profileCacheSql, function (cacheRes) {
+                MDS.log("[ServiceWorker] PROFILE_CACHE table initialized: " + JSON.stringify(cacheRes));
+            });
         });
 
         // Only interested in Maxima
