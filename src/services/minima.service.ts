@@ -998,15 +998,20 @@ Install it from the MiniDapp Store to start chatting!`;
             // For transactions with PENDINGUID (waiting for user approval)
             // Check if still pending in MDS - if not, it was accepted or denied while app was closed
             if (PENDINGUID && (!TXPOWID || TXPOWID === 'null')) {
-                // Get current MDS pending actions
-                const mdsPendingActions = await this.getMDSPendingActions();
+                // Check if this specific UID is still pending using checkpending (doesn't create pending)
+                const isStillPending = await this.checkPendingUID(PENDINGUID);
 
-                if (mdsPendingActions.has(PENDINGUID)) {
+                if (isStillPending) {
                     console.log(`⏳ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} still pending approval (PENDINGUID: ${PENDINGUID})`);
                     // Still waiting for user approval - leave as pending
                     continue;
                 } else {
-                    // PENDINGUID exists but not in MDS pending - was accepted or denied while app was closed
+                    // PENDINGUID exists but not in MDS pending list
+                    // This could mean:
+                    // 1. Transaction was accepted and is now in blockchain
+                    // 2. Transaction was denied/cancelled
+                    // 3. checkpending failed to detect it (unreliable in some cases)
+
                     // Check if it was accepted by looking in confirmed transactions
                     const wasAccepted = confirmedTxs.has(MESSAGE_TIMESTAMP.toString());
 
@@ -1015,10 +1020,11 @@ Install it from the MiniDapp Store to start chatting!`;
                         await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
                         cleanedCount++;
                     } else {
-                        // Not in blockchain = was denied/cancelled
-                        console.log(`❌ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} was denied while app was closed - marking as failed`);
-                        await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
-                        cleanedCount++;
+                        // Not in blockchain and not in pending list
+                        // CONSERVATIVE APPROACH: Leave as pending instead of marking as failed
+                        // Only MDS_PENDING event can reliably tell us if it was denied
+                        console.log(`⚠️ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} not found in blockchain or pending list - keeping as pending (will be updated by MDS_PENDING event if denied)`);
+                        // Don't change state - leave as pending
                     }
                     continue;
                 }
@@ -1417,35 +1423,31 @@ Install it from the MiniDapp Store to start chatting!`;
     }
 
     /**
-     * Get pending MDS actions (includes pending transactions waiting for approval)
-     * Returns a Set of pending UIDs
+     * Check if a specific pending UID is still in the pending list
+     * Uses 'checkpending' command which doesn't create a pending entry
+     * Returns true if the UID is still pending, false otherwise
      */
-    async getMDSPendingActions(): Promise<Set<string>> {
+    async checkPendingUID(uid: string): Promise<boolean> {
         try {
             const response: any = await new Promise((resolve) => {
-                MDS.executeRaw('mds action:pending', (res: any) => {
+                MDS.executeRaw(`checkpending uid:${uid}`, (res: any) => {
                     resolve(res);
                 });
             });
 
-            if (!response.status || !response.response || !response.response.pending) {
-                console.log('📋 [MDSPending] No pending actions found');
-                return new Set();
+            if (!response.status) {
+                console.log(`📋 [CheckPending] Could not check pending status for ${uid}`);
+                return false;
             }
 
-            const pendingUids = new Set<string>();
-            for (const action of response.response.pending) {
-                if (action.uid) {
-                    pendingUids.add(action.uid);
-                }
-            }
-
-            console.log(`📋 [MDSPending] Found ${pendingUids.size} pending MDS action(s)`);
-            return pendingUids;
+            // checkpending returns response.exists: true/false
+            const exists = response.response?.exists || false;
+            console.log(`📋 [CheckPending] UID ${uid} pending status: ${exists}`);
+            return exists;
 
         } catch (err) {
-            console.error('❌ [MDSPending] Error fetching pending actions:', err);
-            return new Set();
+            console.error(`❌ [CheckPending] Error checking pending UID ${uid}:`, err);
+            return false;
         }
     }
 
