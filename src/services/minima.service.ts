@@ -1009,21 +1009,31 @@ Install it from the MiniDapp Store to start chatting!`;
                     // PENDINGUID exists but not in MDS pending list
                     // This could mean:
                     // 1. Transaction was accepted and is now in blockchain
-                    // 2. Transaction was denied/cancelled
-                    // 3. checkpending failed to detect it (unreliable in some cases)
+                    // 2. Transaction was accepted and is in mempool (not yet in blockchain)
+                    // 3. Transaction was denied/cancelled
+                    // 4. checkpending failed to detect it (unreliable in some cases)
 
                     // Check if it was accepted by looking in confirmed transactions
                     const wasAccepted = confirmedTxs.has(MESSAGE_TIMESTAMP.toString());
+
+                    // Check if it's in the mempool (approved but not yet confirmed)
+                    const isInMempool = pendingTxs.has(MESSAGE_TIMESTAMP.toString());
 
                     if (wasAccepted) {
                         console.log(`✅ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} was accepted and confirmed while app was closed`);
                         await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
                         cleanedCount++;
+                    } else if (isInMempool) {
+                        console.log(`⏳ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} is in mempool (approved, waiting for confirmation)`);
+                        // Transaction was approved and is waiting to be added to blockchain
+                        // Update to 'sent' state since it's been approved
+                        await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
+                        cleanedCount++;
                     } else {
-                        // Not in blockchain and not in pending list
+                        // Not in blockchain and not in mempool
                         // CONSERVATIVE APPROACH: Leave as pending instead of marking as failed
                         // Only MDS_PENDING event can reliably tell us if it was denied
-                        console.log(`⚠️ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} not found in blockchain or pending list - keeping as pending (will be updated by MDS_PENDING event if denied)`);
+                        console.log(`⚠️ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} not found in blockchain or mempool - keeping as pending (will be updated by MDS_PENDING event if denied)`);
                         // Don't change state - leave as pending
                     }
                     continue;
