@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { DiscoveryService, UserProfile } from '../services/discovery.service'
 import { maximaDiscoveryService } from '../services/maxima-discovery.service'
@@ -10,6 +10,7 @@ export const Route = createFileRoute('/discovery')({
 })
 
 function DiscoveryPage() {
+    const navigate = useNavigate()
     const [profiles, setProfiles] = useState<UserProfile[]>([])
     const [loading, setLoading] = useState(true)
     const [pinging, setPinging] = useState(false)
@@ -273,7 +274,14 @@ function DiscoveryPage() {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6">
                             {profiles.map((profile) => (
-                                <div key={profile.pubkey} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
+                                <div
+                                    key={profile.pubkey}
+                                    onClick={() => {
+                                        // Navigate to contact info page using pubkey (more reliable than maxAddress)
+                                        navigate({ to: `/contact-info/${profile.pubkey}` })
+                                    }}
+                                    className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow cursor-pointer"
+                                >
                                     <div className="flex items-start justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
@@ -286,11 +294,6 @@ function DiscoveryPage() {
                                                 </p>
                                             </div>
                                         </div>
-                                        {!profile.isMyProfile && (
-                                            <button className="text-blue-600 hover:bg-blue-50 p-2 rounded-full transition-colors" title="Add Contact">
-                                                <UserPlus size={20} />
-                                            </button>
-                                        )}
                                     </div>
 
                                     {profile.description && (

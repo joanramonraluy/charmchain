@@ -26,9 +26,6 @@ function Settings() {
   const [showAvatarDialog, setShowAvatarDialog] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarFileSize, setAvatarFileSize] = useState(0);
-  const [userDescription, setUserDescription] = useState("");
-  const [editDescriptionValue, setEditDescriptionValue] = useState("");
-  const [showDescriptionDialog, setShowDescriptionDialog] = useState(false);
 
   // Community & Discovery State
   const [staticMLSServer, setStaticMLSServer] = useState("");
@@ -39,6 +36,15 @@ function Settings() {
   const [configuringMLS, setConfiguringMLS] = useState(false);
   const [enablingPermanent, setEnablingPermanent] = useState(false);
   const [p2pIdentity, setP2pIdentity] = useState("");
+
+  // Extended Profile Fields
+  const [profileLocation, setProfileLocation] = useState("");
+  const [profileWebsite, setProfileWebsite] = useState("");
+  const [profileBio, setProfileBio] = useState("");
+  const [showLocation, setShowLocation] = useState(true);
+  const [showWebsite, setShowWebsite] = useState(true);
+  const [showBio, setShowBio] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
 
   // Network Status State
   const [networkStatus, setNetworkStatus] = useState<any>(null);
@@ -82,12 +88,6 @@ function Settings() {
     fetchProfile();
     fetchProfile();
 
-    // Load description from local storage
-    const savedDescription = localStorage.getItem("userDescription");
-    if (savedDescription) {
-      setUserDescription(savedDescription);
-    }
-
     // Fetch network status
     fetchNetworkStatus();
 
@@ -120,9 +120,71 @@ function Settings() {
         // Check if permanent address is enabled (we assume it's enabled if staticmls is true)
         // In a real implementation, you'd verify this with maxextra or another check
         setHasPermanentAddress(true);
+
+        // Load existing profile from blockchain
+        await fetchCommunityProfile();
       }
     } catch (err) {
       console.error("Error fetching community status:", err);
+    }
+  };
+
+  const fetchCommunityProfile = async () => {
+    try {
+      const { DiscoveryService } = await import('../services/discovery.service');
+      const profiles = await DiscoveryService.getProfiles();
+      const myProfile = profiles.find(p => p.isMyProfile);
+
+      if (myProfile) {
+        // Load extended data if available
+        if (myProfile.extraData) {
+          setProfileLocation(myProfile.extraData.location || "");
+          setProfileWebsite(myProfile.extraData.website || "");
+          setProfileBio(myProfile.extraData.bio || "");
+        }
+        setProfileVisible(myProfile.visible !== false);
+      }
+    } catch (err) {
+      console.error("Error fetching community profile:", err);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!hasPermanentAddress) {
+      alert("⚠️ Please enable permanent address first");
+      return;
+    }
+
+    setSavingProfile(true);
+    try {
+      const { DiscoveryService } = await import('../services/discovery.service');
+
+      // Build extraData based on visibility toggles
+      const extraData: any = {};
+      if (showLocation && profileLocation.trim()) {
+        extraData.location = profileLocation.trim();
+      }
+      if (showWebsite && profileWebsite.trim()) {
+        extraData.website = profileWebsite.trim();
+      }
+      if (showBio && profileBio.trim()) {
+        extraData.bio = profileBio.trim();
+      }
+
+      // Register/update profile with extended data
+      await DiscoveryService.registerProfile(
+        userName,
+        "", // No longer using userDescription
+        profileVisible,
+        Object.keys(extraData).length > 0 ? extraData : undefined
+      );
+
+      alert("✅ Profile updated successfully!");
+    } catch (err) {
+      console.error("Error saving profile:", err);
+      alert("Failed to save profile: " + (err as Error).message);
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -483,45 +545,108 @@ function Settings() {
                 </div>
               </div>
 
-              {/* Description Section - Full Width */}
-              <div className="border-b border-gray-100">
-                <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">About</h3>
-                </div>
 
-                <div className="relative group">
-                  {showDescriptionDialog ? (
-                    <textarea
-                      value={editDescriptionValue}
-                      onChange={(e) => setEditDescriptionValue(e.target.value)}
-                      onBlur={() => {
-                        // Auto-save on blur
-                        const newDescription = editDescriptionValue.trim();
-                        setUserDescription(newDescription);
-                        localStorage.setItem("userDescription", newDescription);
-                        setShowDescriptionDialog(false);
-                      }}
-                      className="w-full p-6 border-none focus:ring-0 resize-none min-h-[100px] text-gray-700 bg-white"
-                      placeholder="Tell us about yourself..."
-                      autoFocus
-                    />
-                  ) : (
-                    <div
-                      onClick={() => {
-                        setEditDescriptionValue(userDescription);
-                        setShowDescriptionDialog(true);
-                      }}
-                      className="p-6 cursor-pointer hover:bg-gray-50 transition-colors min-h-[100px]"
-                    >
-                      {userDescription ? (
-                        <p className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed">{userDescription}</p>
-                      ) : (
-                        <p className="text-gray-400 text-sm italic">Add a description about yourself...</p>
-                      )}
+              {/* Extended Profile Information */}
+              {hasPermanentAddress && (
+                <div className="border-b border-gray-100">
+                  <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Community Profile</h3>
+                  </div>
+
+                  <div className="p-6 space-y-5">
+                    {/* Location */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-gray-700">Location</label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showLocation}
+                            onChange={(e) => setShowLocation(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                          <span className="ml-3 text-xs text-gray-600">Show in profile</span>
+                        </label>
+                      </div>
+                      <input
+                        type="text"
+                        value={profileLocation}
+                        onChange={(e) => setProfileLocation(e.target.value)}
+                        placeholder="e.g., Barcelona, Spain"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm text-gray-700 bg-white"
+                      />
                     </div>
-                  )}
+
+                    {/* Website */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-gray-700">Website</label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showWebsite}
+                            onChange={(e) => setShowWebsite(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                          <span className="ml-3 text-xs text-gray-600">Show in profile</span>
+                        </label>
+                      </div>
+                      <input
+                        type="url"
+                        value={profileWebsite}
+                        onChange={(e) => setProfileWebsite(e.target.value)}
+                        placeholder="https://example.com"
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm text-gray-700 bg-white"
+                      />
+                    </div>
+
+                    {/* Bio */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-gray-700">Bio</label>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showBio}
+                            onChange={(e) => setShowBio(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                          <span className="ml-3 text-xs text-gray-600">Show in profile</span>
+                        </label>
+                      </div>
+                      <textarea
+                        value={profileBio}
+                        onChange={(e) => setProfileBio(e.target.value)}
+                        placeholder="Tell the community about yourself..."
+                        rows={3}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm resize-none text-gray-700 bg-white"
+                      />
+                    </div>
+
+                    {/* Save Button */}
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={savingProfile}
+                      className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {savingProfile ? (
+                        <>
+                          <RefreshCw size={18} className="animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Check size={18} />
+                          Save Profile
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Maxima Address - Full Width */}
               <div className="border-b border-gray-100">

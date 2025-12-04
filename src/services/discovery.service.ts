@@ -22,6 +22,11 @@ export interface UserProfile {
     maxAddress?: string; // MAX# permanent address from STATE[4]
     visible?: boolean;   // Visibility flag from STATE[5]
     coinid?: string;     // UTXO reference
+    extraData?: {        // Extended profile data from STATE[6]
+        location?: string;
+        website?: string;
+        bio?: string;
+    };
 }
 
 // Cache the registry address to avoid calling newscript multiple times
@@ -74,7 +79,7 @@ export const DiscoveryService = {
         });
     },
 
-    registerProfile: async (username: string, description: string, visible: boolean = true) => {
+    registerProfile: async (username: string, description: string, visible: boolean = true, extraData?: UserProfile['extraData']) => {
         // Validate that user has Static MLS configured
         const maximaInfo = await new Promise<any>((resolve, reject) => {
             MDS.cmd.maxima((res: any) => {
@@ -126,6 +131,17 @@ export const DiscoveryService = {
         const maxAddressHex = DiscoveryService.utf8ToHex(maxAddress);
         const visibleValue = visible ? '1' : '0';
 
+        // Encode extraData (JSON -> Hex)
+        let extraDataHex = '0x00';
+        if (extraData) {
+            try {
+                const jsonStr = JSON.stringify(extraData);
+                extraDataHex = DiscoveryService.utf8ToHex(jsonStr);
+            } catch (e) {
+                console.warn('Failed to serialize extraData:', e);
+            }
+        }
+
         // Send transaction
         // STATE(0) = Username
         // STATE(1) = Description
@@ -133,8 +149,9 @@ export const DiscoveryService = {
         // STATE(3) = Timestamp (unix seconds)
         // STATE(4) = MAX# Permanent Address
         // STATE(5) = Visible (0 or 1)
+        // STATE(6) = Extra Data (JSON)
         // STATE(99) = "CHARM_PROFILE_V1" (Marker)
-        const cmd = `send amount:0.01 address:${address} state:{"0":"${usernameHex}","1":"${descriptionHex}","2":"${pubkey}","3":"${timestampHex}","4":"${maxAddressHex}","5":"${visibleValue}","99":"${markerHex}"}`;
+        const cmd = `send amount:0.01 address:${address} state:{"0":"${usernameHex}","1":"${descriptionHex}","2":"${pubkey}","3":"${timestampHex}","4":"${maxAddressHex}","5":"${visibleValue}","6":"${extraDataHex}","99":"${markerHex}"}`;
 
         // Send blockchain transaction
         await new Promise((resolve, reject) => {
@@ -157,7 +174,8 @@ export const DiscoveryService = {
                 username,
                 pubkey,
                 description,
-                timestamp: parseInt(timestamp)
+                timestamp: parseInt(timestamp),
+                extraData // Include in broadcast
             });
         } catch (e) {
             // Maxima broadcast failed, but blockchain transaction succeeded
@@ -262,6 +280,7 @@ export const DiscoveryService = {
                         const state3 = c.state.find((s: any) => s.port === 3);
                         const state4 = c.state.find((s: any) => s.port === 4);
                         const state5 = c.state.find((s: any) => s.port === 5);
+                        const state6 = c.state.find((s: any) => s.port === 6);
 
                         const timestampStr = state3 ? DiscoveryService.hexToUtf8(state3.data) : '0';
                         const timestamp = parseInt(timestampStr) || 0;
@@ -270,12 +289,24 @@ export const DiscoveryService = {
                         // Check ownership by public key match OR coin ownership
                         const isMine = (myPubkey && profilePubkey === myPubkey) || myCoinIds.has(c.coinid);
 
+                        // Parse extraData
+                        let extraData = undefined;
+                        if (state6 && state6.data && state6.data !== '0x00') {
+                            try {
+                                const jsonStr = DiscoveryService.hexToUtf8(state6.data);
+                                extraData = JSON.parse(jsonStr);
+                            } catch (e) {
+                                // console.warn('Failed to parse extraData:', e);
+                            }
+                        }
+
                         return {
                             username: state0 ? DiscoveryService.hexToUtf8(state0.data) : 'Unknown',
                             pubkey: profilePubkey,
                             description: state1 ? DiscoveryService.hexToUtf8(state1.data) : '',
                             maxAddress: state4 ? DiscoveryService.hexToUtf8(state4.data) : undefined,
                             visible: state5?.data === '1' || state5?.data === '0x01',
+                            extraData,
                             timestamp,
                             lastSeen: c.created || 0,
                             isMyProfile: isMine,
@@ -310,7 +341,8 @@ export const DiscoveryService = {
         await DiscoveryService.registerProfile(
             myProfile.username,
             myProfile.description,
-            visible
+            visible,
+            myProfile.extraData // Preserve extra data
         );
 
         console.log(`✅ [Discovery] Profile visibility updated to: ${visible}`);

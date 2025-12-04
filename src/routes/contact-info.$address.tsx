@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MDS } from "@minima-global/mds";
-import { ArrowLeft, Copy, Check, Trash2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Copy, Check, Trash2, RefreshCw, UserPlus, Globe, MapPin } from "lucide-react";
 import { minimaService } from "../services/minima.service";
+import { DiscoveryService, UserProfile } from "../services/discovery.service";
 
 export const Route = createFileRoute("/contact-info/$address")({
     component: ContactInfoPage,
@@ -26,11 +27,14 @@ function ContactInfoPage() {
     const { address } = Route.useParams();
     const navigate = useNavigate();
     const [contact, setContact] = useState<Contact | null>(null);
+    const [discoveryProfile, setDiscoveryProfile] = useState<UserProfile | null>(null);
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [isArchived, setIsArchived] = useState(false);
+    const [isContact, setIsContact] = useState(false);
+    const [addingContact, setAddingContact] = useState(false);
 
     const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
 
@@ -53,6 +57,7 @@ function ContactInfoPage() {
     useEffect(() => {
         const fetchContact = async () => {
             try {
+                // First, try to find in contacts
                 const res = await MDS.cmd.maxcontacts();
                 const list: Contact[] = (res as any)?.response?.contacts || [];
                 const c = list.find(
@@ -61,9 +66,37 @@ function ContactInfoPage() {
                         x.currentaddress === address ||
                         x.extradata?.minimaaddress === address
                 );
-                console.log("[ContactInfo] Contact found:", c);
-                console.log("[ContactInfo] samechain value:", c?.samechain);
-                setContact(c || null);
+
+                if (c) {
+                    console.log("[ContactInfo] Contact found:", c);
+                    setContact(c);
+                    setIsContact(true);
+                } else {
+                    // If not found in contacts, try Community Discovery
+                    console.log("[ContactInfo] Not in contacts, checking Community Discovery...");
+                    console.log("[ContactInfo] Searching for address:", address);
+                    const profiles = await DiscoveryService.getProfiles();
+                    console.log("[ContactInfo] Found", profiles.length, "profiles");
+                    profiles.forEach((p, i) => {
+                        console.log(`[ContactInfo] Profile ${i}:`, {
+                            username: p.username,
+                            pubkey: p.pubkey,
+                            maxAddress: p.maxAddress,
+                            matches: p.maxAddress === address || p.pubkey === address
+                        });
+                    });
+                    const profile = profiles.find(
+                        (p) => p.maxAddress === address || p.pubkey === address
+                    );
+
+                    if (profile) {
+                        console.log("[ContactInfo] ✅ Found in Community Discovery:", profile);
+                        setDiscoveryProfile(profile);
+                        setIsContact(false);
+                    } else {
+                        console.log("[ContactInfo] ❌ Not found anywhere");
+                    }
+                }
             } catch (err) {
                 console.error("[Contact] Error loading contact:", err);
             } finally {
@@ -99,12 +132,13 @@ function ContactInfoPage() {
 
     // Check app status when contact is loaded
     useEffect(() => {
-        if (!contact?.publickey) return;
+        const pubkey = contact?.publickey || discoveryProfile?.pubkey;
+        if (!pubkey) return;
 
         const checkAppStatus = () => {
             console.log("🔄 [ContactInfo] Checking app status...");
             setAppStatus('checking');
-            minimaService.sendPing(contact.publickey).catch(console.error);
+            minimaService.sendPing(pubkey).catch(console.error);
 
             // Timeout for check
             setTimeout(() => {
@@ -116,7 +150,7 @@ function ContactInfoPage() {
             if (payload.type === 'pong') {
                 console.log("✅ [ContactInfo] Pong received - app is installed");
                 setAppStatus('installed');
-                minimaService.setAppInstalled(contact.publickey);
+                minimaService.setAppInstalled(pubkey);
             }
         };
 
@@ -129,7 +163,7 @@ function ContactInfoPage() {
         return () => {
             minimaService.removeNewMessageCallback(handleNewMessage);
         };
-    }, [contact]);
+    }, [contact, discoveryProfile]);
 
     const copyToClipboard = (text: string, fieldId: string) => {
         navigator.clipboard.writeText(text);
@@ -178,19 +212,24 @@ function ContactInfoPage() {
         );
     }
 
-    if (!contact) {
+    if (!contact && !discoveryProfile) {
         return (
             <div className="h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-                <p className="text-gray-500 mb-4">Contact not found</p>
+                <p className="text-gray-500 mb-4">Profile not found</p>
                 <button
-                    onClick={() => navigate({ to: "/contacts" })}
+                    onClick={() => navigate({ to: "/discovery" })}
                     className="px-4 py-2 bg-blue-500 text-white rounded-lg"
                 >
-                    Go to Contacts
+                    Go to Discovery
                 </button>
             </div>
         );
     }
+
+    // Get display data from either contact or discovery profile
+    const displayName = contact?.extradata?.name || discoveryProfile?.username || "Unknown";
+    const displayPubkey = contact?.publickey || discoveryProfile?.pubkey || "";
+    const displayLastSeen = contact?.lastseen || (discoveryProfile ? Number(discoveryProfile.lastSeen) * 1000 : undefined);
 
     return (
         <div className="h-full overflow-y-auto bg-gray-50">
@@ -219,8 +258,13 @@ function ContactInfoPage() {
                             />
                         </div>
                         <div className="pt-20">
-                            <h2 className="text-2xl font-bold text-gray-900">{contact.extradata?.name || "Unknown"}</h2>
-                            <p className="text-gray-500 text-sm mt-1">Minima User</p>
+                            <h2 className="text-2xl font-bold text-gray-900">{displayName}</h2>
+                            <p className="text-gray-500 text-sm mt-1">
+                                {discoveryProfile?.isMyProfile ? "You" : "Minima User"}
+                                {!isContact && !discoveryProfile?.isMyProfile && (
+                                    <span className="ml-2 text-blue-600 text-xs font-medium">• From Community</span>
+                                )}
+                            </p>
                         </div>
                     </div>
 
@@ -231,9 +275,10 @@ function ContactInfoPage() {
                             {appStatus === 'not_found' && (
                                 <button
                                     onClick={() => {
+                                        const pubkey = contact?.publickey || discoveryProfile?.pubkey;
                                         setAppStatus('checking');
-                                        if (contact?.publickey) {
-                                            minimaService.sendPing(contact.publickey).catch(console.error);
+                                        if (pubkey) {
+                                            minimaService.sendPing(pubkey).catch(console.error);
                                             setTimeout(() => {
                                                 setAppStatus((prev) => prev === 'checking' ? 'not_found' : prev);
                                             }, 5000);
@@ -272,18 +317,18 @@ function ContactInfoPage() {
                     </div>
 
                     {/* Last Seen */}
-                    {contact.lastseen && (
+                    {displayLastSeen && (
                         <div className="p-4 hover:bg-gray-50 transition-colors group">
                             <div className="flex items-center justify-between mb-1">
                                 <span className="text-sm font-medium text-gray-500">Last Seen</span>
                             </div>
-                            <p className="text-sm text-gray-800">{new Date(contact.lastseen).toLocaleString()}</p>
+                            <p className="text-sm text-gray-800">{new Date(displayLastSeen).toLocaleString()}</p>
                         </div>
                     )}
                 </div>
 
                 {/* About Section - Only show if description exists */}
-                {contact.extradata?.description && (
+                {contact?.extradata?.description && (
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                         <div className="p-4 border-b border-gray-100 bg-gray-50/50">
                             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">About</h3>
@@ -304,22 +349,24 @@ function ContactInfoPage() {
 
                     <div className="divide-y divide-gray-100">
                         {/* Public Key */}
-                        <div className="p-4 hover:bg-gray-50 transition-colors group">
-                            <div className="flex items-center justify-between mb-1">
-                                <span className="text-sm font-medium text-gray-500">Public Key</span>
-                                <button
-                                    onClick={() => copyToClipboard(contact.publickey, 'pubkey')}
-                                    className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-blue-50 rounded"
-                                    title="Copy"
-                                >
-                                    {copiedField === 'pubkey' ? <Check size={16} /> : <Copy size={16} />}
-                                </button>
+                        {displayPubkey && (
+                            <div className="p-4 hover:bg-gray-50 transition-colors group">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="text-sm font-medium text-gray-500">Public Key</span>
+                                    <button
+                                        onClick={() => copyToClipboard(displayPubkey, 'pubkey')}
+                                        className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-blue-50 rounded"
+                                        title="Copy"
+                                    >
+                                        {copiedField === 'pubkey' ? <Check size={16} /> : <Copy size={16} />}
+                                    </button>
+                                </div>
+                                <p className="text-sm font-mono text-gray-800 break-all">{displayPubkey}</p>
                             </div>
-                            <p className="text-sm font-mono text-gray-800 break-all">{contact.publickey}</p>
-                        </div>
+                        )}
 
                         {/* Minima Address */}
-                        {contact.extradata?.minimaaddress && (
+                        {contact?.extradata?.minimaaddress && (
                             <div className="p-4 hover:bg-gray-50 transition-colors group">
                                 <div className="flex items-center justify-between mb-1">
                                     <span className="text-sm font-medium text-gray-500">Minima Address</span>
