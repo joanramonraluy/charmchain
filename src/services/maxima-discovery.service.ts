@@ -42,7 +42,7 @@ class MaximaDiscoveryService {
 
         // Publish to Maxima
         return new Promise((resolve, reject) => {
-            const cmd = `maxima action:send application:${MAXIMA_TOPIC} data:${JSON.stringify(signedMessage)}`;
+            const cmd = `maxima action:sendall application:${MAXIMA_TOPIC} data:${JSON.stringify(signedMessage)}`;
 
             MDS.executeRaw(cmd, (res: any) => {
                 if (res.status) {

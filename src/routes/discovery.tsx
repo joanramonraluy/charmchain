@@ -21,16 +21,19 @@ function DiscoveryPage() {
     const [notificationMessage, setNotificationMessage] = useState('')
     const [totalFound, setTotalFound] = useState(0)
     const [onlineCount, setOnlineCount] = useState(0)
+    const [hasPermanentAddress, setHasPermanentAddress] = useState(false)
+    const [checkingMLS, setCheckingMLS] = useState(false)
 
     useEffect(() => {
         loadData()
+        checkStaticMLSConfig() // Check MLS configuration on mount
 
         // Subscribe to Maxima profile broadcasts
         const unsubscribe = maximaDiscoveryService.subscribeToProfiles((newProfile) => {
             setProfiles(prev => {
                 // Add new profile and deduplicate
                 const updated = [...prev, newProfile];
-                return DiscoveryService.deduplicateByUsername(updated);
+                return DiscoveryService.deduplicateProfiles(updated);
             });
 
             // Show notification
@@ -41,6 +44,33 @@ function DiscoveryPage() {
 
         return () => unsubscribe();
     }, [])
+
+    const checkStaticMLSConfig = async () => {
+        setCheckingMLS(true)
+        try {
+            const { MDS } = await import('@minima-global/mds')
+            const maximaInfo = await MDS.cmd.maxima()
+            const info = (maximaInfo.response as any) || {}
+
+            console.log('🔍 [Discovery] Checking Static MLS configuration:', info)
+
+            const hasStatic = info.staticmls || false
+
+            if (hasStatic && info.mls) {
+                // User has Static MLS configured
+                setHasPermanentAddress(true)
+                console.log('✅ [Discovery] Static MLS configured:', info.mls)
+            } else {
+                setHasPermanentAddress(false)
+                console.log('⚠️ [Discovery] Static MLS NOT configured')
+            }
+        } catch (err) {
+            console.error('❌ [Discovery] Error checking Static MLS:', err)
+            setHasPermanentAddress(false)
+        } finally {
+            setCheckingMLS(false)
+        }
+    }
 
     const loadData = async () => {
         setLoading(true)
@@ -57,14 +87,23 @@ function DiscoveryPage() {
 
             const pingResults = await Promise.allSettled(
                 fetchedProfiles.map(async (profile) => {
+                    // If it's my profile, I'm always online!
+                    if (profile.isMyProfile) {
+                        console.log(`👤 [Discovery] Found my own profile (${profile.username}), marking online automatically`)
+                        return { profile, online: true }
+                    }
+
                     if (!profile.maxAddress) {
+                        console.log(`⚠️ [Discovery] Profile ${profile.username} has no maxAddress`)
                         return { profile, online: false }
                     }
 
+                    console.log(`Ping to ${profile.username}...`)
                     const isOnline = await maximaCommunityProtocolService.pingProfile(
                         profile.maxAddress,
                         3000 // 3 second timeout
                     )
+                    console.log(`Ping result for ${profile.username}: ${isOnline}`)
 
                     return { profile, online: isOnline }
                 })
@@ -156,12 +195,32 @@ function DiscoveryPage() {
 
                     {!isRegistered ? (
                         <button
-                            onClick={() => setShowModal(true)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+                            onClick={async () => {
+                                // Re-check Static MLS configuration before opening modal
+                                await checkStaticMLSConfig()
+
+                                // Check after async completes (using callback)
+                                const { MDS } = await import('@minima-global/mds')
+                                const maximaInfo = await MDS.cmd.maxima()
+                                const info = (maximaInfo.response as any) || {}
+
+                                if (!info.staticmls) {
+                                    alert('⚠️ Static MLS Not Configured\n\nYou need to configure a Static MLS server before joining the Community.\n\nPlease go to Settings > Community & Discovery to configure it first.')
+                                    return
+                                }
+
+                                setShowModal(true)
+                            }}
+                            disabled={checkingMLS}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 disabled:opacity-70 disabled:cursor-wait"
                         >
-                            <UserPlus size={18} />
-                            <span className="hidden sm:inline">Join Community</span>
-                            <span className="sm:hidden">Join</span>
+                            {checkingMLS ? (
+                                <RefreshCw size={18} className="animate-spin" />
+                            ) : (
+                                <UserPlus size={18} />
+                            )}
+                            <span className="hidden sm:inline">{checkingMLS ? 'Checking...' : 'Join Community'}</span>
+                            <span className="sm:hidden">{checkingMLS ? '...' : 'Join'}</span>
                         </button>
                     ) : (
                         <button
@@ -284,13 +343,25 @@ function DiscoveryPage() {
                                 />
                             </div>
 
-                            <div className="bg-blue-900/30 border border-blue-700 rounded-lg p-3 text-sm">
-                                <p className="text-blue-200 font-medium mb-1">⚡ Requirements:</p>
-                                <p className="text-blue-300 text-xs">
-                                    You must have a <strong>Static MLS configured</strong> to join the Community.
-                                    This ensures you have a permanent MAX# address for others to contact you.
-                                </p>
-                            </div>
+                            {hasPermanentAddress ? (
+                                <div className="bg-green-900/30 border border-green-700 rounded-lg p-3 text-sm">
+                                    <p className="text-green-200 font-medium mb-1">✅ Ready to Join!</p>
+                                    <p className="text-green-300 text-xs">
+                                        Your Static MLS is configured and you have a permanent MAX# address.
+                                        Enter your username to register your profile on the blockchain.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 text-sm">
+                                    <p className="text-yellow-200 font-medium mb-1">⚠️ Requirements:</p>
+                                    <p className="text-yellow-300 text-xs">
+                                        You must have a <strong>Static MLS configured</strong> to join the Community.
+                                        This ensures you have a permanent MAX# address for others to contact you.
+                                        <br /><br />
+                                        Please go to <strong>Settings → Community & Discovery</strong> to configure it first.
+                                    </p>
+                                </div>
+                            )}
 
                             <div className="flex gap-3 pt-2">
                                 <button

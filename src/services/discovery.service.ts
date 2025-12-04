@@ -3,7 +3,7 @@ import { maximaDiscoveryService } from './maxima-discovery.service';
 
 // The Registry Script: Simple ownership check.
 // Only the owner (defined by Public Key in STATE(2)) can spend/update the profile.
-export const REGISTRY_SCRIPT = 'RETURN SIGNEDBY(STATE(2))';
+export const REGISTRY_SCRIPT = 'RETURN SIGNEDBY(STATE(2)) /* v2_track */';
 
 // We need a fixed address for the registry. 
 // In a real deployment, we would calculate this once and hardcode it to ensure everyone uses the same one.
@@ -63,9 +63,10 @@ export const DiscoveryService = {
             const cmd = `newscript script:"${REGISTRY_SCRIPT}" trackall:true`;
 
             MDS.executeRaw(cmd, (res: any) => {
-                if (res.status && res.response?.miniaddress) {
-                    cachedRegistryAddress = res.response.miniaddress;
-                    resolve(res.response.miniaddress);
+                if (res.status && res.response?.address) {
+                    cachedRegistryAddress = res.response.address;
+                    console.log(`🏛️ [Discovery] Registry Address (0x): ${res.response.address}`);
+                    resolve(res.response.address);
                 } else {
                     reject(res.error || "No address in response");
                 }
@@ -137,7 +138,10 @@ export const DiscoveryService = {
 
         // Send blockchain transaction
         await new Promise((resolve, reject) => {
+            console.log(`📤 [Discovery] Sending registration transaction to ${address}...`);
             MDS.executeRaw(cmd, (res: any) => {
+                console.log('📄 [Discovery] Send response:', JSON.stringify(res, null, 2));
+
                 // Accept both status:true OR pending:true as success
                 if (res.status || res.pending) {
                     resolve(res.response);
@@ -162,15 +166,21 @@ export const DiscoveryService = {
         }
     },
 
-    // Helper function to deduplicate profiles by username (keep newest)
-    deduplicateByUsername: (profiles: UserProfile[]): UserProfile[] => {
+    // Helper function to deduplicate profiles by Maxima Address (Identity + Host)
+    deduplicateProfiles: (profiles: UserProfile[]): UserProfile[] => {
         // Sort by timestamp desc (newest first)
         profiles.sort((a, b) => b.timestamp - a.timestamp);
 
-        // Keep only first (newest) per username
+        // Keep only first (newest) per MaxAddress
         const seen = new Map<string, UserProfile>();
         for (const p of profiles) {
-            const key = p.username.toLowerCase();
+            // Use maxAddress as unique identifier if available (handles multi-device)
+            // Fallback to pubkey, then username
+            let key = p.maxAddress;
+            if (!key) {
+                key = p.pubkey ? p.pubkey : p.username.toLowerCase();
+            }
+
             if (!seen.has(key)) {
                 seen.set(key, p);
             }
@@ -203,24 +213,46 @@ export const DiscoveryService = {
 
         const myCoinIds = new Set(myCoins.map((c: any) => c.coinid));
 
+        // Get our public key to check ownership
+        const myPubkey = await new Promise<string>((resolve) => {
+            MDS.executeRaw('getaddress', (res: any) => {
+                if (res.status && res.response?.publickey) {
+                    resolve(res.response.publickey);
+                } else {
+                    resolve('');
+                }
+            });
+        });
+
         // Fetch current UTXOs at registry
         const currentProfiles = await new Promise<UserProfile[]>((resolve) => {
             const coinsCmd = `coins address:${address}`;
+            console.log(`🔍 [Discovery] Fetching profiles from registry: ${address}`);
 
             MDS.executeRaw(coinsCmd, (res: any) => {
                 if (!res.status) {
+                    console.error('❌ [Discovery] Failed to fetch coins:', res.error);
                     resolve([]);
                     return;
                 }
 
                 const coins = res.response || [];
+                console.log(`📦 [Discovery] Found ${coins.length} coins at registry address`);
+
+                if (coins.length > 0) {
+                    console.log('First coin sample:', JSON.stringify(coins[0], null, 2));
+                }
+
                 const profiles = coins
                     .filter((c: any) => {
                         const state99 = c.state?.find((s: any) => s.port === 99);
                         const state5 = c.state?.find((s: any) => s.port === 5);
-                        // Filter by marker and visibility
-                        const isProfileCoin = state99?.data?.toUpperCase() === markerHex.toUpperCase();
+
+                        // Debug filtering
+                        const marker = state99?.data;
+                        const isProfileCoin = marker?.toUpperCase() === markerHex.toUpperCase();
                         const isVisible = state5?.data === '1' || state5?.data === '0x01';
+
                         return isProfileCoin && isVisible;
                     })
                     .map((c: any) => {
@@ -234,25 +266,30 @@ export const DiscoveryService = {
                         const timestampStr = state3 ? DiscoveryService.hexToUtf8(state3.data) : '0';
                         const timestamp = parseInt(timestampStr) || 0;
 
+                        const profilePubkey = state2?.data || '';
+                        // Check ownership by public key match OR coin ownership
+                        const isMine = (myPubkey && profilePubkey === myPubkey) || myCoinIds.has(c.coinid);
+
                         return {
                             username: state0 ? DiscoveryService.hexToUtf8(state0.data) : 'Unknown',
-                            pubkey: state2?.data || '',
+                            pubkey: profilePubkey,
                             description: state1 ? DiscoveryService.hexToUtf8(state1.data) : '',
                             maxAddress: state4 ? DiscoveryService.hexToUtf8(state4.data) : undefined,
                             visible: state5?.data === '1' || state5?.data === '0x01',
                             timestamp,
                             lastSeen: c.created || 0,
-                            isMyProfile: myCoinIds.has(c.coinid),
+                            isMyProfile: isMine,
                             coinid: c.coinid
                         };
                     });
 
+                console.log(`✅ [Discovery] Parsed ${profiles.length} valid profiles from coins`);
                 resolve(profiles);
             });
         });
 
-        // Deduplicate by username (keep newest)
-        const uniqueProfiles = DiscoveryService.deduplicateByUsername(currentProfiles);
+        // Deduplicate by Public Key (keep newest)
+        const uniqueProfiles = DiscoveryService.deduplicateProfiles(currentProfiles);
 
         return uniqueProfiles;
     },
