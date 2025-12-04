@@ -996,11 +996,32 @@ Install it from the MiniDapp Store to start chatting!`;
             const ageMinutes = Math.floor(age / (1000 * 60));
 
             // For transactions with PENDINGUID (waiting for user approval)
-            // These will be handled by the MDS_PENDING event when user accepts/denies
+            // Check if still pending in MDS - if not, it was accepted or denied while app was closed
             if (PENDINGUID && (!TXPOWID || TXPOWID === 'null')) {
-                console.log(`⏳ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} has PENDINGUID - will be handled by MDS_PENDING event`);
-                // Leave as pending - MDS_PENDING event will update when user accepts/denies
-                continue;
+                // Get current MDS pending actions
+                const mdsPendingActions = await this.getMDSPendingActions();
+
+                if (mdsPendingActions.has(PENDINGUID)) {
+                    console.log(`⏳ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} still pending approval (PENDINGUID: ${PENDINGUID})`);
+                    // Still waiting for user approval - leave as pending
+                    continue;
+                } else {
+                    // PENDINGUID exists but not in MDS pending - was accepted or denied while app was closed
+                    // Check if it was accepted by looking in confirmed transactions
+                    const wasAccepted = confirmedTxs.has(MESSAGE_TIMESTAMP.toString());
+
+                    if (wasAccepted) {
+                        console.log(`✅ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} was accepted and confirmed while app was closed`);
+                        await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'sent');
+                        cleanedCount++;
+                    } else {
+                        // Not in blockchain = was denied/cancelled
+                        console.log(`❌ [Cleanup] Transaction ${MESSAGE_TIMESTAMP} was denied while app was closed - marking as failed`);
+                        await this.updateMessageState(PUBLICKEY, MESSAGE_TIMESTAMP, 'failed');
+                        cleanedCount++;
+                    }
+                    continue;
+                }
             }
             // For transactions with TXPOWID (already approved, check directly)
             else if (TXPOWID && TXPOWID !== 'null') {

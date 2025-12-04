@@ -75,6 +75,7 @@ function ChatPage() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { writeMode, userName } = useContext(appContext);
+  const isLoadingMessages = useRef(false); // Flag to prevent simultaneous loads
 
   const defaultAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23cbd5e1'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/%3E%3C/svg%3E";
 
@@ -153,6 +154,14 @@ function ChatPage() {
   const loadMessagesFromDB = async () => {
     if (!contact?.publickey) return;
 
+    // Prevent simultaneous loads
+    if (isLoadingMessages.current) {
+      console.log("⏭️ [Chat] Skipping load - already loading messages");
+      return;
+    }
+
+    isLoadingMessages.current = true;
+
     try {
       const rawMessages = await minimaService.getMessages(contact.publickey);
 
@@ -178,14 +187,10 @@ function ChatPage() {
             displayText = decodeURIComponent(row.MESSAGE || "");
           }
 
-          // console.log(`🔍[loadMessages] Message timestamp = ${ row.DATE }, STATE from DB = "${row.STATE}", type = ${ row.TYPE } `);
-
           // Safer status parsing - do NOT default to 'sent' blindly
           let parsedStatus: any = row.STATE;
           if (!parsedStatus || parsedStatus === 'null' || parsedStatus === 'undefined') {
             // If state is missing, default based on type AND sender
-            // Charms/Tokens should default to pending ONLY if sent by you (username === "Me")
-            // Received charms/tokens are already confirmed, so they should be 'sent'
             const username = row.USERNAME;
             parsedStatus = (isCharm || isToken) && username === "Me" ? 'pending' : 'sent';
           }
@@ -203,12 +208,13 @@ function ChatPage() {
           return parsed;
         });
 
-        // console.log(`🔍[loadMessages] Loaded ${ parsedMessages.length } messages.Pending: ${ parsedMessages.filter(m => m.status === 'pending').length }, Zombie: ${ parsedMessages.filter(m => m.status === 'zombie').length } `);
         const deduplicatedMessages = deduplicateMessages(parsedMessages);
         setMessages(deduplicatedMessages);
       }
     } catch (err) {
       console.error("Failed to load messages:", err);
+    } finally {
+      isLoadingMessages.current = false;
     }
   };
 
@@ -216,8 +222,6 @@ function ChatPage() {
     if (!address || !contact?.publickey) return;
 
     const initChat = async () => {
-      // console.log("🚀 [ChatPage] initChat START for", contact.publickey);
-
       // Initial load
       await loadMessagesFromDB();
 
@@ -225,8 +229,6 @@ function ChatPage() {
       minimaService.markChatAsOpened(contact.publickey);
 
       // Verify pending transactions when entering chat
-      // This ensures we catch any updates that happened while outside the chat
-      // console.log("🧹 [ChatPage] Verifying pending transactions...");
       minimaService.cleanupOrphanedPendingTransactions().catch(err => {
         console.error("❌ [ChatPage] Error verifying pending transactions:", err);
       });
@@ -234,13 +236,13 @@ function ChatPage() {
 
     initChat();
 
-    // Poll for new messages every 10 seconds (matches transaction polling)
+    // Poll for new messages every 10 seconds
     const interval = setInterval(() => {
       loadMessagesFromDB();
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [address, contact, userName]);
+  }, [address, contact]); // Removed userName - not used in this effect
 
 
   const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
@@ -274,14 +276,16 @@ function ChatPage() {
         return;
       }
 
-      // Reload messages from DB to get latest state
-      // Use contact.publickey to ensure we get the correct messages
+      // Skip loading for ping, receipts - they don't add messages to DB
+      if (payload.type === 'ping' || payload.type === 'read_receipt' || payload.type === 'delivery_receipt') {
+        return;
+      }
+
+      // Only reload for actual new messages (text, charm, token)
       loadMessagesFromDB().then(() => {
-        // If this is a NEW MESSAGE (not a receipt), send read receipt
-        if (payload.type !== 'read_receipt' && payload.type !== 'delivery_receipt' && payload.type !== 'ping') {
-          if (contact.publickey) {
-            minimaService.sendReadReceipt(contact.publickey);
-          }
+        // Send read receipt for new messages
+        if (contact.publickey) {
+          minimaService.sendReadReceipt(contact.publickey);
         }
       });
     };

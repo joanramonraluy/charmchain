@@ -81,7 +81,7 @@ function Settings() {
     // Fetch network status
     fetchNetworkStatus();
 
-    // Refresh write mode status
+    // Refresh write mode status using checkmode (doesn't create pending)
     console.log("🔄 [Settings] Calling refreshWriteMode...");
     refreshWriteMode();
   }, [loaded, refreshWriteMode]);

@@ -63,33 +63,32 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     setUserAvatar(avatar)
   }
 
-  // Function to refresh write mode (called from Settings)
+  // Function to refresh write mode using checkmode command (doesn't create pending)
   const refreshWriteMode = useCallback(async (): Promise<void> => {
     return new Promise((resolve) => {
-      console.log("🔄 [AppContext] Refreshing write mode...");
-      (MDS as any).executeRaw("mds", (res: any) => {
-        console.log("📝 [AppContext] 'mds' command response:", res);
-        if (res.status && res.response && res.response.minidapps) {
-          const myDapp = res.response.minidapps.find((d: any) => d.conf?.name === "CharmChain");
-          if (myDapp) {
-            const perm = myDapp.conf.permission;
-            console.log(`📝 [AppContext] Found CharmChain permission: ${perm}`);
+      console.log("🔄 [AppContext] Refreshing write mode with checkmode...");
+      (MDS as any).executeRaw("checkmode", (res: any) => {
+        console.log("📝 [AppContext] 'checkmode' command response:", res);
+        if (res.status && res.response) {
+          const mode = res.response.mode;
+          console.log(`📝 [AppContext] Detected mode: ${mode}`);
 
-            if (perm === "write") {
-              setWriteMode(true);
-              console.log("✅ [AppContext] Write Mode ENABLED");
-            } else {
-              setWriteMode(false);
-              console.log("⚠️ [AppContext] Read Mode ACTIVE");
-            }
+          if (mode === "WRITE") {
+            setWriteMode(true);
+            console.log("✅ [AppContext] Write Mode ENABLED");
           } else {
-            console.warn("⚠️ [AppContext] Could not find 'CharmChain' in minidapps list");
+            setWriteMode(false);
+            console.log("⚠️ [AppContext] Read Mode ACTIVE");
           }
+        } else {
+          console.log("📝 [AppContext] Could not detect mode - keeping current state");
         }
         resolve();
       });
     });
-  }, []); // Empty dependency array since it only depends on setWriteMode which is stable
+  }, []);
+
+
 
   useEffect(() => {
     if (!initialised.current) {
@@ -109,47 +108,25 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
         if (msg.event === MinimaEvents.INITED) {
           setLoaded(true)
           console.log("MDS initialised and ready! 🚀")
-          console.log("MDS Init Message FULL:", JSON.stringify(msg, null, 2))
 
-          // Check for Write Mode permission
-          // Usually found in msg.data.conf.write or similar. 
-          const confWrite = msg.data?.conf?.write;
-          const rootWrite = msg.data?.write;
-          const confPermission = msg.data?.conf?.permission;
+          // Check Write Mode using checkmode command (doesn't create pending)
+          console.log("🔄 [AppContext] Checking Write Mode with 'checkmode'...");
+          (MDS as any).executeRaw("checkmode", (res: any) => {
+            console.log("📝 [AppContext] 'checkmode' command response:", res);
+            if (res.status && res.response) {
+              const mode = res.response.mode;
+              console.log(`📝 [AppContext] Detected mode: ${mode}`);
 
-          console.log(`📝 [AppContext] Raw Write Mode values: conf.write=${confWrite}, write=${rootWrite}, conf.permission=${confPermission}`);
-
-          // Check boolean true, string "true", or permission "write"
-          // We keep this as a first pass, but rely on the 'mds' command for truth
-          let initialWriteMode = (confWrite === true || confWrite === "true") ||
-            (rootWrite === true || rootWrite === "true") ||
-            (confPermission === "write");
-
-          if (initialWriteMode) setWriteMode(true);
-
-          // ROBUST CHECK: Execute 'mds' command to find our own permission
-          // This is the most reliable way as it queries the node directly
-          (MDS as any).executeRaw("mds", (res: any) => {
-            console.log("📝 [AppContext] 'mds' command response:", res);
-            if (res.status && res.response && res.response.minidapps) {
-              const myDapp = res.response.minidapps.find((d: any) => d.conf?.name === "CharmChain");
-              if (myDapp) {
-                const perm = myDapp.conf.permission;
-                console.log(`📝 [AppContext] Found CharmChain permission via 'mds' command: ${perm}`);
-
-                if (perm === "write") {
-                  setWriteMode(true);
-                  console.log("📝 [AppContext] Write Mode ENABLED");
-                } else {
-                  // If explicitly 'read', ensure we set it to false (though default is false)
-                  if (initialWriteMode && perm !== "write") {
-                    console.warn("⚠️ [AppContext] Initial check said Write, but 'mds' command says Read. Reverting to Read.");
-                    setWriteMode(false);
-                  }
-                }
+              if (mode === "WRITE") {
+                setWriteMode(true);
+                console.log("✅ [AppContext] Write Mode ENABLED");
               } else {
-                console.warn("⚠️ [AppContext] Could not find 'CharmChain' in minidapps list");
+                setWriteMode(false);
+                console.log("⚠️ [AppContext] Read Mode ACTIVE");
               }
+            } else {
+              console.log("📝 [AppContext] Could not detect mode - defaulting to Read Mode");
+              setWriteMode(false);
             }
           });
 
