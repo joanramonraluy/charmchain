@@ -108,6 +108,67 @@ function Settings() {
     refreshWriteMode();
   }, [loaded, refreshWriteMode]);
 
+  // Handle hash-based scrolling
+  useEffect(() => {
+    const handleHashChange = async () => {
+      const hash = window.location.hash;
+      console.log('🔍 [Settings] Hash detected:', hash);
+
+      if (hash === '#community-discovery') {
+        // Increased delay to ensure the DOM and state are fully rendered
+        setTimeout(async () => {
+          console.log('⏰ [Settings] Timeout triggered, checking element...');
+          const element = document.querySelector(hash);
+
+          if (element) {
+            console.log('✅ [Settings] Element found, scrolling...');
+            element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            // Check if Static MLS is configured to decide if we should expand the section
+            try {
+              console.log('🔍 [Settings] Checking Static MLS status...');
+              const maximaInfo = await MDS.cmd.maxima();
+              const info = (maximaInfo.response as any) || {};
+
+              console.log('📊 [Settings] Static MLS status:', info.staticmls);
+
+              // If no Static MLS configured, expand the section
+              if (!info.staticmls) {
+                console.log('🔓 [Settings] Expanding Static MLS section...');
+                setExpandedAddress('staticMLS');
+              } else {
+                console.log('✅ [Settings] Static MLS already configured, keeping section collapsed');
+              }
+            } catch (err) {
+              console.error('❌ [Settings] Error checking Static MLS:', err);
+              // On error, expand the section to be safe
+              console.log('🔓 [Settings] Expanding section due to error...');
+              setExpandedAddress('staticMLS');
+            }
+
+            // Clear the hash after processing to prevent re-triggering on page refresh
+            setTimeout(() => {
+              console.log('🧹 [Settings] Clearing hash from URL...');
+              window.history.replaceState(null, '', window.location.pathname);
+            }, 500);
+          } else {
+            console.warn('⚠️ [Settings] Element not found for hash:', hash);
+          }
+        }, 300); // Increased from 100ms to 300ms
+      }
+    };
+
+    // Check hash on mount
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
+
   const fetchCommunityStatus = async () => {
     try {
       const maximaInfo = await MDS.cmd.maxima();
@@ -858,7 +919,7 @@ function Settings() {
             </section>
 
             {/* COMMUNITY & DISCOVERY SECTION */}
-            <section className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <section id="community-discovery" className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden scroll-mt-4">
               <div className="p-6 border-b border-gray-100 flex items-center gap-3">
                 <Globe className="text-blue-500" />
                 <h2 className="text-xl font-semibold text-gray-800">Community & Discovery</h2>

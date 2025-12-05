@@ -726,7 +726,8 @@ class MinimaService {
                 if (json.type === "pong") {
                     console.log("📡 [MAXIMA] Pong received from", from);
                     // Notify listeners so UI can update app status
-                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'pong' }));
+                    // Include 'from' so Discovery page can identify which profile responded
+                    this.newMessageCallbacks.forEach((cb) => cb({ ...json, type: 'pong', from } as any));
                     return;
                 }
 
