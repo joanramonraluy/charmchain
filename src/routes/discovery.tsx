@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { DiscoveryService, UserProfile } from '../services/discovery.service'
 import { maximaDiscoveryService } from '../services/maxima-discovery.service'
+
+type DisplayProfile = UserProfile & { online: boolean };
 import { maximaCommunityProtocolService } from '../services/maxima-community-protocol.service'
 import { UserPlus, Search, Globe, X, RefreshCw, Edit } from 'lucide-react'
 
@@ -11,7 +13,7 @@ export const Route = createFileRoute('/discovery')({
 
 function DiscoveryPage() {
     const navigate = useNavigate()
-    const [profiles, setProfiles] = useState<UserProfile[]>([])
+    const [profiles, setProfiles] = useState<DisplayProfile[]>([])
     const [loading, setLoading] = useState(true)
     const [pinging, setPinging] = useState(false)
     const [registering, setRegistering] = useState(false)
@@ -32,9 +34,10 @@ function DiscoveryPage() {
         // Subscribe to Maxima profile broadcasts
         const unsubscribe = maximaDiscoveryService.subscribeToProfiles((newProfile) => {
             setProfiles(prev => {
-                // Add new profile and deduplicate
-                const updated = [...prev, newProfile];
-                return DiscoveryService.deduplicateProfiles(updated);
+                // Add new profile (assume online since it just broadcasted)
+                const newDisplayProfile: DisplayProfile = { ...newProfile, online: true };
+                const updated = [...prev, newDisplayProfile];
+                return DiscoveryService.deduplicateProfiles(updated) as DisplayProfile[];
             });
 
             // Show notification
@@ -110,23 +113,26 @@ function DiscoveryPage() {
                 })
             )
 
-            // 3. Filter only online profiles
-            const onlineProfiles = pingResults
-                .filter(result => result.status === 'fulfilled' && result.value.online)
-                .map(result => (result as PromiseFulfilledResult<{ profile: UserProfile, online: boolean }>).value.profile)
+            // 3. Map all profiles with their online status (don't filter offline ones)
+            const displayProfiles = pingResults
+                .filter(result => result.status === 'fulfilled')
+                .map(result => {
+                    const res = (result as PromiseFulfilledResult<{ profile: UserProfile, online: boolean }>).value;
+                    return { ...res.profile, online: res.online };
+                });
 
-            console.log(`✅ [Discovery] ${onlineProfiles.length} of ${fetchedProfiles.length} profiles are online`)
-            setOnlineCount(onlineProfiles.length)
-            setProfiles(onlineProfiles)
+            console.log(`✅ [Discovery] ${displayProfiles.length} profiles found (${displayProfiles.filter(p => p.online).length} online)`)
+            setOnlineCount(displayProfiles.filter(p => p.online).length)
+            setProfiles(displayProfiles)
 
             // Check if new profiles appeared
-            if (previousCount > 0 && onlineProfiles.length > previousCount) {
-                const newCount = onlineProfiles.length - previousCount
-                setNotificationMessage(`🎉 ${newCount} new online profile${newCount > 1 ? 's' : ''} found!`)
+            if (previousCount > 0 && displayProfiles.length > previousCount) {
+                const newCount = displayProfiles.length - previousCount
+                setNotificationMessage(`🎉 ${newCount} new profile${newCount > 1 ? 's' : ''} found!`)
                 setShowNotification(true)
                 setTimeout(() => setShowNotification(false), 3000)
             }
-            setPreviousCount(onlineProfiles.length)
+            setPreviousCount(displayProfiles.length)
         } catch (e) {
             console.error(e)
         } finally {
@@ -143,8 +149,18 @@ function DiscoveryPage() {
 
         setRegistering(true)
         try {
+            // Find my profile to preserve extraData
+            const myProfile = profiles.find(p => p.isMyProfile);
+            const extraData = myProfile?.extraData;
+
             // registerProfile will validate Static MLS internally
-            await DiscoveryService.registerProfile(username.trim(), '', true) // Empty description, visibility true
+            // Update L1 Profile (Name)
+            await DiscoveryService.updateL1Profile(username.trim(), '', true);
+
+            // Update Extended Profile (preserve existing extraData)
+            if (extraData) {
+                await DiscoveryService.updateExtendedProfile(extraData);
+            }
             alert(isRegistered
                 ? "Profile updated successfully! 📝\n\nChanges will appear after the transaction is mined."
                 : "Profile registered successfully! ⛏️\n\nYour profile will appear in the list once the transaction is mined (usually 1-3 minutes). Click the refresh button to check.")
@@ -284,8 +300,14 @@ function DiscoveryPage() {
                                 >
                                     <div className="flex items-start justify-between">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
-                                                {profile.username.charAt(0).toUpperCase()}
+                                            <div className="relative">
+                                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
+                                                    {profile.username.charAt(0).toUpperCase()}
+                                                </div>
+                                                <div
+                                                    className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white ${profile.online ? 'bg-green-500' : 'bg-gray-400'}`}
+                                                    title={profile.online ? 'Online' : 'Offline'}
+                                                ></div>
                                             </div>
                                             <div>
                                                 <h3 className="font-bold text-gray-900">{profile.username}</h3>

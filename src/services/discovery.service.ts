@@ -45,14 +45,13 @@ export const DiscoveryService = {
 
     hexToUtf8: (s: string): string => {
         if (!s) return "";
-        // Remove 0x if present
         const hex = s.startsWith("0x") ? s.substring(2) : s;
         try {
-            return decodeURIComponent(
-                hex.replace(/\s+/g, "").replace(/[0-9A-F]{2}/g, "%$&")
-            );
+            const bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
+            return new TextDecoder().decode(bytes);
         } catch (e) {
-            return s; // Return original if decode fails
+            console.error("Error decoding hex:", e);
+            return s;
         }
     },
 
@@ -79,7 +78,7 @@ export const DiscoveryService = {
         });
     },
 
-    registerProfile: async (username: string, description: string, visible: boolean = true, extraData?: UserProfile['extraData']) => {
+    updateL1Profile: async (username: string, description: string, visible: boolean = true) => {
         // Validate that user has Static MLS configured
         const maximaInfo = await new Promise<any>((resolve, reject) => {
             MDS.cmd.maxima((res: any) => {
@@ -131,17 +130,6 @@ export const DiscoveryService = {
         const maxAddressHex = DiscoveryService.utf8ToHex(maxAddress);
         const visibleValue = visible ? '1' : '0';
 
-        // Encode extraData (JSON -> Hex)
-        let extraDataHex = '0x00';
-        if (extraData) {
-            try {
-                const jsonStr = JSON.stringify(extraData);
-                extraDataHex = DiscoveryService.utf8ToHex(jsonStr);
-            } catch (e) {
-                console.warn('Failed to serialize extraData:', e);
-            }
-        }
-
         // Send transaction
         // STATE(0) = Username
         // STATE(1) = Description
@@ -149,9 +137,9 @@ export const DiscoveryService = {
         // STATE(3) = Timestamp (unix seconds)
         // STATE(4) = MAX# Permanent Address
         // STATE(5) = Visible (0 or 1)
-        // STATE(6) = Extra Data (JSON)
+        // STATE(6) = REMOVED (was Extra Data)
         // STATE(99) = "CHARM_PROFILE_V1" (Marker)
-        const cmd = `send amount:0.01 address:${address} state:{"0":"${usernameHex}","1":"${descriptionHex}","2":"${pubkey}","3":"${timestampHex}","4":"${maxAddressHex}","5":"${visibleValue}","6":"${extraDataHex}","99":"${markerHex}"}`;
+        const cmd = `send amount:0.01 address:${address} state:{"0":"${usernameHex}","1":"${descriptionHex}","2":"${pubkey}","3":"${timestampHex}","4":"${maxAddressHex}","5":"${visibleValue}","99":"${markerHex}"}`;
 
         // Send blockchain transaction
         await new Promise((resolve, reject) => {
@@ -167,19 +155,54 @@ export const DiscoveryService = {
                 }
             });
         });
+    },
+
+    updateExtendedProfile: async (extraData: UserProfile['extraData']) => {
+        // Get current L1 profile to include core data in broadcast
+        const profiles = await DiscoveryService.getProfiles();
+        const myProfile = profiles.find(p => p.isMyProfile);
+
+        if (!myProfile) {
+            throw new Error('No L1 profile found. Please create an L1 profile first.');
+        }
+
+        const pubkey = myProfile.pubkey;
+        const username = myProfile.username;
+
+        // Save extended profile data to local DB
+        if (extraData) {
+            const location = extraData.location ? `'${extraData.location.replace(/'/g, "''")}'` : 'NULL';
+            const website = extraData.website ? `'${extraData.website.replace(/'/g, "''")}'` : 'NULL';
+            const bio = extraData.bio ? `'${extraData.bio.replace(/'/g, "''")}'` : 'NULL';
+
+            const sql = `
+                MERGE INTO PROFILES (pubkey, username, location, website, bio, last_seen)
+                KEY (pubkey)
+                VALUES ('${pubkey}', '${username.replace(/'/g, "''")}', ${location}, ${website}, ${bio}, ${Date.now()})
+            `;
+
+            await new Promise<void>((resolve) => {
+                MDS.sql(sql, (res: any) => {
+                    if (res.status) {
+                        console.log("✅ [Discovery] Saved extended profile to local DB");
+                    } else {
+                        console.error("❌ [Discovery] Failed to save extended profile:", res.error);
+                    }
+                    resolve();
+                });
+            });
+        }
 
         // Broadcast via Maxima for instant cross-node discovery
         try {
             await maximaDiscoveryService.broadcastProfile({
                 username,
                 pubkey,
-                description,
-                timestamp: parseInt(timestamp),
+                description: myProfile.description,
+                timestamp: Math.floor(Date.now() / 1000),
                 extraData // Include in broadcast
             });
         } catch (e) {
-            // Maxima broadcast failed, but blockchain transaction succeeded
-            // This is not critical, so we don't reject
             console.warn('Maxima broadcast failed:', e);
         }
     },
@@ -216,29 +239,37 @@ export const DiscoveryService = {
         const markerHex = DiscoveryService.utf8ToHex(PROFILE_MARKER);
 
         // Get our coin IDs to determine ownership
-        const myCoins = await new Promise<any[]>((resolve) => {
-            MDS.executeRaw('coins', (res: any) => {
-                if (res.status) {
-                    const coins = res.response || [];
-                    resolve(coins.filter((c: any) =>
-                        c.miniaddress === address || c.address === address
-                    ));
+
+
+        // Get all our public keys to check ownership accurately
+        const myPublicKeys = await new Promise<Set<string>>((resolve) => {
+            MDS.cmd.keys((res: any) => {
+                const keys = new Set<string>();
+                if (res.status && res.response && Array.isArray(res.response.keys)) {
+                    res.response.keys.forEach((k: any) => {
+                        keys.add(k.publickey);
+                    });
                 } else {
-                    resolve([]);
+                    console.warn("⚠️ [Discovery] Unexpected response from 'keys':", JSON.stringify(res.response, null, 2));
                 }
+                resolve(keys);
             });
         });
 
-        const myCoinIds = new Set(myCoins.map((c: any) => c.coinid));
-
-        // Get our public key to check ownership
-        const myPubkey = await new Promise<string>((resolve) => {
-            MDS.executeRaw('getaddress', (res: any) => {
-                if (res.status && res.response?.publickey) {
-                    resolve(res.response.publickey);
-                } else {
-                    resolve('');
+        // Fetch local extended profiles
+        const localProfilesMap = await new Promise<Map<string, any>>((resolve) => {
+            MDS.sql("SELECT * FROM PROFILES", (res: any) => {
+                const map = new Map<string, any>();
+                if (res.status && res.rows) {
+                    res.rows.forEach((row: any) => {
+                        map.set(row.PUBKEY, {
+                            location: row.LOCATION,
+                            website: row.WEBSITE,
+                            bio: row.BIO
+                        });
+                    });
                 }
+                resolve(map);
             });
         });
 
@@ -257,21 +288,27 @@ export const DiscoveryService = {
                 const coins = res.response || [];
                 console.log(`📦 [Discovery] Found ${coins.length} coins at registry address`);
 
-                if (coins.length > 0) {
-                    console.log('First coin sample:', JSON.stringify(coins[0], null, 2));
-                }
-
                 const profiles = coins
                     .filter((c: any) => {
                         const state99 = c.state?.find((s: any) => s.port === 99);
                         const state5 = c.state?.find((s: any) => s.port === 5);
+                        const state2 = c.state?.find((s: any) => s.port === 2);
 
                         // Debug filtering
                         const marker = state99?.data;
                         const isProfileCoin = marker?.toUpperCase() === markerHex.toUpperCase();
                         const isVisible = state5?.data === '1' || state5?.data === '0x01';
 
-                        return isProfileCoin && isVisible;
+                        // Check ownership
+                        const profilePubkey = state2?.data || '';
+                        const isMine = myPublicKeys.has(profilePubkey);
+
+                        if (isProfileCoin && !isVisible && !isMine) {
+                            console.log(`👻 [Discovery] Hidden profile found. Pubkey: ${profilePubkey.substring(0, 10)}..., State5: ${state5?.data}`);
+                        }
+
+                        // Return if it's a profile coin AND (it's visible OR it's mine)
+                        return isProfileCoin && (isVisible || isMine);
                     })
                     .map((c: any) => {
                         const state0 = c.state.find((s: any) => s.port === 0);
@@ -280,25 +317,22 @@ export const DiscoveryService = {
                         const state3 = c.state.find((s: any) => s.port === 3);
                         const state4 = c.state.find((s: any) => s.port === 4);
                         const state5 = c.state.find((s: any) => s.port === 5);
-                        const state6 = c.state.find((s: any) => s.port === 6);
+                        // STATE 6 is no longer used for extraData
 
                         const timestampStr = state3 ? DiscoveryService.hexToUtf8(state3.data) : '0';
                         const timestamp = parseInt(timestampStr) || 0;
 
                         const profilePubkey = state2?.data || '';
-                        // Check ownership by public key match OR coin ownership
-                        const isMine = (myPubkey && profilePubkey === myPubkey) || myCoinIds.has(c.coinid);
+                        // Check ownership by public key match
+                        const isMine = myPublicKeys.has(profilePubkey);
 
-                        // Parse extraData
-                        let extraData = undefined;
-                        if (state6 && state6.data && state6.data !== '0x00') {
-                            try {
-                                const jsonStr = DiscoveryService.hexToUtf8(state6.data);
-                                extraData = JSON.parse(jsonStr);
-                            } catch (e) {
-                                // console.warn('Failed to parse extraData:', e);
-                            }
-                        }
+                        // Merge with local extended data
+                        const localData = localProfilesMap.get(profilePubkey);
+                        const extraData = localData ? {
+                            location: localData.location,
+                            website: localData.website,
+                            bio: localData.bio
+                        } : undefined;
 
                         return {
                             username: state0 ? DiscoveryService.hexToUtf8(state0.data) : 'Unknown',
@@ -338,11 +372,10 @@ export const DiscoveryService = {
         }
 
         // Re-register with new visibility
-        await DiscoveryService.registerProfile(
+        await DiscoveryService.updateL1Profile(
             myProfile.username,
             myProfile.description,
-            visible,
-            myProfile.extraData // Preserve extra data
+            visible
         );
 
         console.log(`✅ [Discovery] Profile visibility updated to: ${visible}`);

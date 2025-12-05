@@ -37,7 +37,15 @@ function Settings() {
   const [enablingPermanent, setEnablingPermanent] = useState(false);
   const [p2pIdentity, setP2pIdentity] = useState("");
 
+  // L1 Profile State Tracking
+  const [l1Name, setL1Name] = useState("");
+  const [originalL1Name, setOriginalL1Name] = useState("");
+  const [originalProfileDescription, setOriginalProfileDescription] = useState("");
+  const [originalProfileVisible, setOriginalProfileVisible] = useState(true);
+  const [showReadModeWarning, setShowReadModeWarning] = useState(false);
+
   // Extended Profile Fields
+  const [profileDescription, setProfileDescription] = useState("");
   const [profileLocation, setProfileLocation] = useState("");
   const [profileWebsite, setProfileWebsite] = useState("");
   const [profileBio, setProfileBio] = useState("");
@@ -61,7 +69,8 @@ function Settings() {
         const info = (infoRes.response as any) || {};
 
         if (info) {
-          setUserName(info.name || "User");
+          const name = info.name || "User";
+          setUserName(name);
           if (info.icon) {
             const decodedIcon = decodeURIComponent(info.icon);
             // Check if it's a valid data URL, and not a URL ending in /0x00 (no photo)
@@ -142,14 +151,70 @@ function Settings() {
           setProfileWebsite(myProfile.extraData.website || "");
           setProfileBio(myProfile.extraData.bio || "");
         }
-        setProfileVisible(myProfile.visible !== false);
+
+        const name = myProfile.username || "";
+        const desc = myProfile.description || "";
+        const visible = myProfile.visible !== false;
+
+        setL1Name(name);
+        setProfileDescription(desc);
+        setProfileVisible(visible);
+
+        // Set original values for dirty checking
+        setOriginalL1Name(name);
+        setOriginalProfileDescription(desc);
+        setOriginalProfileVisible(visible);
       }
-    } catch (err) {
+    }
+
+    catch (err) {
       console.error("Error fetching community profile:", err);
     }
   };
 
-  const handleSaveProfile = async () => {
+  const executeL1Update = async () => {
+    try {
+      setSavingProfile(true);
+      const { DiscoveryService } = await import('../services/discovery.service');
+
+      // Update L1 Profile
+      await DiscoveryService.updateL1Profile(
+        l1Name,
+        profileDescription,
+        profileVisible
+      );
+
+      setOriginalL1Name(l1Name);
+      setOriginalProfileDescription(profileDescription);
+      setOriginalProfileVisible(profileVisible);
+
+      console.log("✅ [Settings] L1 Profile updated successfully");
+      alert("✅ L1 Profile updated successfully!");
+    } catch (err) {
+      console.error("❌ [Settings] Error updating L1 profile:", err);
+      alert("Failed to update L1 profile: " + (err as Error).message);
+    } finally {
+      setSavingProfile(false);
+      setShowReadModeWarning(false);
+    }
+  };
+
+  const handleUpdateL1Profile = async () => {
+    console.log("🖱️ [Settings] Update L1 Profile clicked. WriteMode:", writeMode);
+    if (!hasPermanentAddress) {
+      alert("⚠️ Please enable permanent address first");
+      return;
+    }
+
+    if (!writeMode) {
+      setShowReadModeWarning(true);
+      return;
+    }
+
+    await executeL1Update();
+  };
+
+  const handleUpdateExtendedProfile = async () => {
     if (!hasPermanentAddress) {
       alert("⚠️ Please enable permanent address first");
       return;
@@ -157,6 +222,7 @@ function Settings() {
 
     setSavingProfile(true);
     try {
+      console.log("💾 [Settings] Updating Extended profile...");
       const { DiscoveryService } = await import('../services/discovery.service');
 
       // Build extraData based on visibility toggles
@@ -171,18 +237,15 @@ function Settings() {
         extraData.bio = profileBio.trim();
       }
 
-      // Register/update profile with extended data
-      await DiscoveryService.registerProfile(
-        userName,
-        "", // No longer using userDescription
-        profileVisible,
+      await DiscoveryService.updateExtendedProfile(
         Object.keys(extraData).length > 0 ? extraData : undefined
       );
 
-      alert("✅ Profile updated successfully!");
+      console.log("✅ [Settings] Extended Profile updated successfully");
+      alert("✅ Extended Profile updated successfully!");
     } catch (err) {
-      console.error("Error saving profile:", err);
-      alert("Failed to save profile: " + (err as Error).message);
+      console.error("❌ [Settings] Error updating extended profile:", err);
+      alert("Failed to update extended profile: " + (err as Error).message);
     } finally {
       setSavingProfile(false);
     }
@@ -404,6 +467,39 @@ function Settings() {
 
   return (
     <>
+      {/* Read Mode Warning Modal */}
+      {showReadModeWarning && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-96 max-w-full mx-4">
+            <div className="flex items-center gap-3 mb-4 text-yellow-600 dark:text-yellow-500">
+              <AlertTriangle size={24} />
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Read Mode Active</h3>
+            </div>
+
+            <p className="text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
+              This action will create a <strong>PENDING transaction</strong>.
+              <br /><br />
+              You will need to go to the <strong>Minima app</strong> to approve it manually.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowReadModeWarning(false)}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeL1Update}
+                className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-md transition-colors font-medium"
+              >
+                Proceed & Create Pending
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Name Dialog */}
       {showEditDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -527,33 +623,36 @@ function Settings() {
                     <Edit2 size={12} />
                   </button>
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-bold text-gray-900">{userName}</h3>
-                    <button
-                      onClick={() => {
-                        console.log("[Settings] Edit button clicked");
-                        handleEditName();
-                      }}
-                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                      title="Edit Name"
-                    >
-                      <Edit2 size={16} />
-                    </button>
-                  </div>
-                  <p className="text-sm text-gray-500">Visible to your contacts</p>
+                <div className="flex-1 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-gray-900">{userName}</h3>
+                  <button
+                    onClick={handleEditName}
+                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                    title="Edit Maxima Name"
+                  >
+                    <Edit2 size={14} />
+                  </button>
                 </div>
+                <p className="text-sm text-gray-500">Visible to your contacts</p>
               </div>
 
 
               {/* Extended Profile Information */}
               {hasPermanentAddress && (
                 <div className="border-b border-gray-100">
+
+
+                  {/* Extended Profile Section */}
                   <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-100">
-                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Community Profile</h3>
+                    <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Extended Profile</h3>
                   </div>
 
                   <div className="p-6 space-y-5">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-800 flex items-start gap-2">
+                      <Info size={16} className="mt-0.5 flex-shrink-0" />
+                      <p>Updates here are free! Data is stored locally and shared via Maxima.</p>
+                    </div>
+
                     {/* Location */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
@@ -628,9 +727,9 @@ function Settings() {
 
                     {/* Save Button */}
                     <button
-                      onClick={handleSaveProfile}
+                      onClick={handleUpdateExtendedProfile}
                       disabled={savingProfile}
-                      className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       {savingProfile ? (
                         <>
@@ -640,7 +739,7 @@ function Settings() {
                       ) : (
                         <>
                           <Check size={18} />
-                          Save Profile
+                          Update Extended Profile
                         </>
                       )}
                     </button>
@@ -767,6 +866,91 @@ function Settings() {
 
 
               <div className="p-6 space-y-6">
+                {/* L1 Profile Section */}
+                {hasPermanentAddress && (
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-200">
+                      <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">L1 Profile (Blockchain)</h3>
+                    </div>
+                    <div className="p-6 space-y-5">
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800 flex items-start gap-2">
+                        <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+                        <p>Updating this section creates a transaction on the blockchain and costs a small fee.</p>
+                      </div>
+
+                      {/* Display Name */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Display Name</label>
+                        <input
+                          type="text"
+                          value={l1Name}
+                          onChange={(e) => setL1Name(e.target.value)}
+                          placeholder="Your public display name"
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all bg-white text-gray-700"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">This name is stored on the blockchain and visible to everyone.</p>
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description (Tagline)</label>
+                        <input
+                          type="text"
+                          value={profileDescription}
+                          onChange={(e) => setProfileDescription(e.target.value)}
+                          placeholder="Short description or tagline..."
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-sm text-gray-700 bg-white"
+                        />
+                      </div>
+
+                      {/* Visibility Toggle */}
+                      <div className="flex items-center justify-between p-4 rounded-lg border bg-gray-50 border-gray-200">
+                        <div>
+                          <p className="font-medium text-gray-800 text-sm">
+                            {profileVisible ? 'Visible in Community' : 'Hidden from Community'}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            {profileVisible
+                              ? 'Other users can discover and contact you'
+                              : 'You are hidden from Community Discovery'}
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={profileVisible}
+                            onChange={(e) => setProfileVisible(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+
+                      <button
+                        onClick={handleUpdateL1Profile}
+                        disabled={savingProfile || (
+                          l1Name === originalL1Name &&
+                          profileDescription === originalProfileDescription &&
+                          profileVisible === originalProfileVisible
+                        )}
+                        className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {savingProfile ? (
+                          <>
+                            <RefreshCw size={18} className="animate-spin" />
+                            Updating L1...
+                          </>
+                        ) : (
+                          <>
+                            <Check size={18} />
+                            Update L1 Profile
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* MLS Server (for Development) */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -800,162 +984,152 @@ function Settings() {
                 </div>
 
                 {/* Static MLS Configuration */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Static MLS Server</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Configure a permanent Maxima Lookup Service to enable a permanent MAX# address for Community Discovery.
-                  </p>
-
-                  {hasStaticMLS ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Check className="text-green-600" size={20} />
-                        <span className="font-semibold text-green-800">Static MLS Configured</span>
-                      </div>
-                      <p className="text-xs text-gray-600 font-mono break-all mt-2">
-                        {staticMLSServer}
-                      </p>
+                {/* Static MLS Configuration */}
+                <div className="border-b border-gray-100">
+                  <button
+                    onClick={() => toggleAddress('staticMLS')}
+                    className="w-full flex items-center justify-between p-6 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-gray-800">Static MLS Server</h3>
+                      {hasStaticMLS && <Check className="text-green-500" size={20} />}
                     </div>
-                  ) : (
-                    <>
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                        <div className="flex items-center gap-2">
-                          <AlertTriangle className="text-yellow-600" size={20} />
-                          <span className="font-semibold text-yellow-800">Static MLS Not Configured</span>
-                        </div>
-                        <p className="text-sm text-yellow-700 mt-2">
-                          Enter your Static MLS server address below to enable Community Discovery.
-                        </p>
-                      </div>
+                    {expandedAddress === 'staticMLS' ? <ChevronUp size={20} className="text-gray-500" /> : <ChevronDown size={20} className="text-gray-500" />}
+                  </button>
 
-                      <div className="space-y-3">
-                        <input
-                          type="text"
-                          value={staticMLSServer}
-                          onChange={(e) => setStaticMLSServer(e.target.value)}
-                          placeholder="MxG...@IP:PORT"
-                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-sm"
-                        />
-                        <button
-                          onClick={handleConfigureStaticMLS}
-                          disabled={configuringMLS || !staticMLSServer.trim()}
-                          className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                          {configuringMLS ? (
-                            <>
-                              <RefreshCw size={18} className="animate-spin" />
-                              Configuring...
-                            </>
-                          ) : (
-                            <>
-                              <Check size={18} />
-                              Configure Static MLS
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </>
+                  {expandedAddress === 'staticMLS' && (
+                    <div className="px-6 pb-6 pt-0">
+                      <p className="text-sm text-gray-600 mb-4">
+                        Configure a permanent Maxima Lookup Service to enable a permanent MAX# address for Community Discovery.
+                      </p>
+
+                      {hasStaticMLS ? (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Check className="text-green-600" size={20} />
+                            <span className="font-semibold text-green-800">Static MLS Configured</span>
+                          </div>
+                          <p className="text-xs text-gray-600 font-mono break-all mt-2">
+                            {staticMLSServer}
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="text-yellow-600" size={20} />
+                              <span className="font-semibold text-yellow-800">Static MLS Not Configured</span>
+                            </div>
+                            <p className="text-sm text-yellow-700 mt-2">
+                              Enter your Static MLS server address below to enable Community Discovery.
+                            </p>
+                          </div>
+
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={staticMLSServer}
+                              onChange={(e) => setStaticMLSServer(e.target.value)}
+                              placeholder="MxG...@IP:PORT"
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono text-sm"
+                            />
+                            <button
+                              onClick={handleConfigureStaticMLS}
+                              disabled={configuringMLS || !staticMLSServer.trim()}
+                              className="w-full py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                              {configuringMLS ? (
+                                <>
+                                  <RefreshCw size={18} className="animate-spin" />
+                                  Configuring...
+                                </>
+                              ) : (
+                                <>
+                                  <Check size={18} />
+                                  Configure Static MLS
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
 
                 {/* Permanent Address */}
-                <div className="border-t border-gray-100 pt-6">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Permanent MAX# Address</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Enable a permanent address that never changes, allowing others to contact you even if you're not a contact.
-                  </p>
-
-                  {hasPermanentAddress ? (
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Check className="text-green-600" size={20} />
-                        <span className="font-semibold text-green-800">Permanent Address Active</span>
-                      </div>
-                      <div className="bg-white rounded border border-green-200 p-3">
-                        <p className="text-xs text-gray-500 mb-1">Your MAX# Address:</p>
-                        <p className="text-xs font-mono text-gray-800 break-all">{permanentAddress}</p>
-                      </div>
-                      <button
-                        onClick={() => copyToClipboard(permanentAddress, 'permanent')}
-                        className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'permanent' ? 'bg-green-100 text-green-700' : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'}`}
-                      >
-                        {copiedField === 'permanent' ? <Check size={16} /> : <Copy size={16} />}
-                        {copiedField === 'permanent' ? 'Copied!' : 'Copy MAX# Address'}
-                      </button>
+                {/* Permanent Address */}
+                <div className="border-b border-gray-100">
+                  <button
+                    onClick={() => toggleAddress('permanentAddress')}
+                    className="w-full flex items-center justify-between p-6 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-gray-800">Permanent MAX# Address</h3>
+                      {hasPermanentAddress && <Check className="text-green-500" size={20} />}
                     </div>
-                  ) : (
-                    <div>
-                      {hasStaticMLS ? (
-                        <button
-                          onClick={handleEnablePermanentAddress}
-                          disabled={enablingPermanent}
-                          className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                          {enablingPermanent ? (
-                            <>
-                              <RefreshCw size={18} className="animate-spin" />
-                              Enabling...
-                            </>
-                          ) : (
-                            <>
-                              <Check size={18} />
-                              Enable Permanent Address
-                            </>
-                          )}
-                        </button>
+                    {expandedAddress === 'permanentAddress' ? <ChevronUp size={20} className="text-gray-500" /> : <ChevronDown size={20} className="text-gray-500" />}
+                  </button>
+
+                  {expandedAddress === 'permanentAddress' && (
+                    <div className="px-6 pb-6 pt-0">
+                      <p className="text-sm text-gray-600 mb-4">
+                        Enable a permanent address that never changes, allowing others to contact you even if you're not a contact.
+                      </p>
+
+                      {hasPermanentAddress ? (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Check className="text-green-600" size={20} />
+                            <span className="font-semibold text-green-800">Permanent Address Active</span>
+                          </div>
+                          <div className="bg-white rounded border border-green-200 p-3">
+                            <p className="text-xs text-gray-500 mb-1">Your MAX# Address:</p>
+                            <p className="text-xs font-mono text-gray-800 break-all">{permanentAddress}</p>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(permanentAddress, 'permanent')}
+                            className={`mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${copiedField === 'permanent' ? 'bg-green-100 text-green-700' : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'}`}
+                          >
+                            {copiedField === 'permanent' ? <Check size={16} /> : <Copy size={16} />}
+                            {copiedField === 'permanent' ? 'Copied!' : 'Copy MAX# Address'}
+                          </button>
+                        </div>
                       ) : (
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                          <AlertTriangle className="text-gray-400 mx-auto mb-2" size={24} />
-                          <p className="text-sm text-gray-600">
-                            Configure Static MLS first to enable permanent address
-                          </p>
+                        <div>
+                          {hasStaticMLS ? (
+                            <button
+                              onClick={handleEnablePermanentAddress}
+                              disabled={enablingPermanent}
+                              className="w-full py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                              {enablingPermanent ? (
+                                <>
+                                  <RefreshCw size={18} className="animate-spin" />
+                                  Enabling...
+                                </>
+                              ) : (
+                                <>
+                                  <Check size={18} />
+                                  Enable Permanent Address
+                                </>
+                              )}
+                            </button>
+                          ) : (
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                              <AlertTriangle className="text-gray-400 mx-auto mb-2" size={24} />
+                              <p className="text-sm text-gray-600">
+                                Configure Static MLS first to enable permanent address
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* Profile Visibility */}
-                {hasPermanentAddress && (
-                  <div className="border-t border-gray-100 pt-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-3">Community Visibility</h3>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Control whether your profile appears in the Community Discovery list.
-                    </p>
 
-                    <div className={`flex items-center justify-between p-4 rounded-lg border ${profileVisible ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
-                      <div>
-                        <p className="font-medium text-gray-800">
-                          {profileVisible ? 'Visible in Community' : 'Hidden from Community'}
-                        </p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          {profileVisible
-                            ? 'Other users can discover and contact you'
-                            : 'You are hidden from Community Discovery'}
-                        </p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={profileVisible}
-                          onChange={async (e) => {
-                            const newVisible = e.target.checked;
-                            setProfileVisible(newVisible);
-                            try {
-                              const { DiscoveryService } = await import('../services/discovery.service');
-                              await DiscoveryService.updateProfileVisibility(newVisible);
-                            } catch (err) {
-                              console.error('Error updating visibility:', err);
-                              setProfileVisible(!newVisible); // Revert on error
-                            }
-                          }}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                  </div>
-                )}
               </div>
             </section>
 
@@ -1103,7 +1277,7 @@ function Settings() {
             </section>
 
           </div>
-        </div>
+        </div >
       </div >
     </>
   );

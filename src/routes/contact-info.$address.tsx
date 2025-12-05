@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MDS } from "@minima-global/mds";
-import { ArrowLeft, Copy, Check, Trash2, RefreshCw, UserPlus, Globe, MapPin } from "lucide-react";
+import { ArrowLeft, Copy, Check, Trash2, RefreshCw, UserPlus, MessageCircle, Globe, MapPin } from "lucide-react";
 import { minimaService } from "../services/minima.service";
 import { DiscoveryService, UserProfile } from "../services/discovery.service";
 
@@ -71,31 +71,23 @@ function ContactInfoPage() {
                     console.log("[ContactInfo] Contact found:", c);
                     setContact(c);
                     setIsContact(true);
-                } else {
-                    // If not found in contacts, try Community Discovery
-                    console.log("[ContactInfo] Not in contacts, checking Community Discovery...");
-                    console.log("[ContactInfo] Searching for address:", address);
-                    const profiles = await DiscoveryService.getProfiles();
-                    console.log("[ContactInfo] Found", profiles.length, "profiles");
-                    profiles.forEach((p, i) => {
-                        console.log(`[ContactInfo] Profile ${i}:`, {
-                            username: p.username,
-                            pubkey: p.pubkey,
-                            maxAddress: p.maxAddress,
-                            matches: p.maxAddress === address || p.pubkey === address
-                        });
-                    });
-                    const profile = profiles.find(
-                        (p) => p.maxAddress === address || p.pubkey === address
-                    );
+                }
 
-                    if (profile) {
-                        console.log("[ContactInfo] ✅ Found in Community Discovery:", profile);
-                        setDiscoveryProfile(profile);
-                        setIsContact(false);
-                    } else {
-                        console.log("[ContactInfo] ❌ Not found anywhere");
-                    }
+                // Always check Community Discovery to get extended info
+                console.log("[ContactInfo] Checking Community Discovery...");
+                const profiles = await DiscoveryService.getProfiles();
+                const profile = profiles.find(
+                    (p) => p.maxAddress === address || p.pubkey === address || (c && p.pubkey === c.publickey)
+                );
+
+                if (profile) {
+                    console.log("[ContactInfo] ✅ Found in Community Discovery:", profile);
+                    setDiscoveryProfile(profile);
+                    // If we didn't find it in contacts but found it here, update isContact
+                    if (!c) setIsContact(false);
+                } else {
+                    console.log("[ContactInfo] ❌ Not found in Community Discovery");
+                    if (!c) console.log("[ContactInfo] ❌ Not found anywhere");
                 }
             } catch (err) {
                 console.error("[Contact] Error loading contact:", err);
@@ -183,6 +175,72 @@ function ContactInfoPage() {
             console.error("❌ Failed to delete chat:", err);
             alert("Failed to delete chat. Please try again.");
         }
+    };
+
+    const handleAddContact = async () => {
+        if (!discoveryProfile) return;
+        setAddingContact(true);
+        try {
+            await new Promise((resolve, reject) => {
+                MDS.cmd.maxcontacts({
+                    params: {
+                        action: "add",
+                        contact: discoveryProfile.maxAddress || discoveryProfile.pubkey
+                    } as any
+                }, (res: any) => {
+                    if (res.status) resolve(res);
+                    else reject(res.error);
+                });
+            });
+
+            // Refresh contact status
+            setIsContact(true);
+            // Re-fetch to get the contact object
+            const res = await MDS.cmd.maxcontacts();
+            const list: Contact[] = (res as any)?.response?.contacts || [];
+            const c = list.find(x => x.publickey === discoveryProfile.pubkey);
+            if (c) setContact(c);
+
+            console.log("✅ Contact added successfully");
+        } catch (err) {
+            console.error("❌ Failed to add contact:", err);
+            alert("Failed to add contact. Please try again.");
+        } finally {
+            setAddingContact(false);
+        }
+    };
+
+    const handleGoChat = async () => {
+        const pubkey = contact?.publickey || discoveryProfile?.pubkey;
+        if (!pubkey) return;
+
+        // If not a contact yet, add them first
+        if (!isContact && discoveryProfile) {
+            try {
+                setAddingContact(true);
+                await new Promise((resolve, reject) => {
+                    MDS.cmd.maxcontacts({
+                        params: {
+                            action: "add",
+                            contact: discoveryProfile.maxAddress || discoveryProfile.pubkey
+                        } as any
+                    }, (res: any) => {
+                        if (res.status) resolve(res);
+                        else reject(res.error);
+                    });
+                });
+                setIsContact(true);
+            } catch (err) {
+                console.error("❌ Failed to auto-add contact:", err);
+                // Continue anyway, maybe they just want to see if they can chat? 
+                // But usually chat requires contact. Let's alert.
+                alert("Could not add contact. Chat might not work correctly.");
+            } finally {
+                setAddingContact(false);
+            }
+        }
+
+        navigate({ to: `/chat/${address}` });
     };
 
     const handleToggleArchive = async () => {
@@ -328,15 +386,57 @@ function ContactInfoPage() {
                 </div>
 
                 {/* About Section - Only show if description exists */}
-                {contact?.extradata?.description && (
+                {(contact?.extradata?.description || discoveryProfile?.description) && (
                     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                         <div className="p-4 border-b border-gray-100 bg-gray-50/50">
                             <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">About</h3>
                         </div>
                         <div className="p-4">
                             <p className="text-sm text-gray-700 leading-relaxed">
-                                {contact.extradata.description}
+                                {contact?.extradata?.description || discoveryProfile?.description}
                             </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Extended Profile Info (Location, Website, Bio) */}
+                {discoveryProfile?.extraData && (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="p-4 border-b border-gray-100 bg-gray-50/50">
+                            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Extended Profile</h3>
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                            {discoveryProfile.extraData.location && (
+                                <div className="p-4 flex items-start gap-3">
+                                    <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
+                                    <div>
+                                        <span className="text-xs font-medium text-gray-500 block mb-0.5">Location</span>
+                                        <span className="text-sm text-gray-800">{discoveryProfile.extraData.location}</span>
+                                    </div>
+                                </div>
+                            )}
+                            {discoveryProfile.extraData.website && (
+                                <div className="p-4 flex items-start gap-3">
+                                    <Globe className="w-5 h-5 text-gray-400 mt-0.5" />
+                                    <div>
+                                        <span className="text-xs font-medium text-gray-500 block mb-0.5">Website</span>
+                                        <a
+                                            href={discoveryProfile.extraData.website.startsWith('http') ? discoveryProfile.extraData.website : `https://${discoveryProfile.extraData.website}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-sm text-blue-600 hover:underline break-all"
+                                        >
+                                            {discoveryProfile.extraData.website}
+                                        </a>
+                                    </div>
+                                </div>
+                            )}
+                            {discoveryProfile.extraData.bio && (
+                                <div className="p-4">
+                                    <span className="text-xs font-medium text-gray-500 block mb-2">Bio</span>
+                                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{discoveryProfile.extraData.bio}</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -384,42 +484,75 @@ function ContactInfoPage() {
                     </div>
                 </div>
 
-                {/* Actions Section (Placeholder) */}
+                {/* Actions Section */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                     <div className="p-4 border-b border-gray-100 bg-gray-50/50">
                         <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Actions</h3>
                     </div>
                     <div className="divide-y divide-gray-100">
+                        {/* Add Contact Button - Only if not a contact and not my profile */}
+                        {!isContact && !discoveryProfile?.isMyProfile && (
+                            <button
+                                onClick={handleAddContact}
+                                disabled={addingContact}
+                                className="w-full p-4 text-left flex items-center gap-3 text-blue-600 hover:bg-blue-50 transition-colors"
+                            >
+                                {addingContact ? (
+                                    <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    <UserPlus size={20} />
+                                )}
+                                <span className="font-medium">Add to Contacts</span>
+                            </button>
+                        )}
+
+                        {/* Go Chat Button */}
                         <button
-                            onClick={handleToggleArchive}
-                            className={`w-full p-4 text-left flex items-center gap-3 transition-colors ${isArchived
-                                ? 'text-blue-600 hover:bg-blue-50'
-                                : 'text-gray-600 hover:bg-gray-50'
-                                }`}
+                            onClick={handleGoChat}
+                            disabled={addingContact}
+                            className="w-full p-4 text-left flex items-center gap-3 text-blue-600 hover:bg-blue-50 transition-colors"
                         >
-                            {isArchived ? (
-                                <>
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                                    </svg>
-                                    <span className="font-medium">Unarchive Chat</span>
-                                </>
-                            ) : (
-                                <>
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                                    </svg>
-                                    <span className="font-medium">Archive Chat</span>
-                                </>
-                            )}
+                            <MessageCircle size={20} />
+                            <span className="font-medium">
+                                {!isContact && !discoveryProfile?.isMyProfile ? "Add & Chat" : "Go to Chat"}
+                            </span>
                         </button>
-                        <button
-                            onClick={() => setShowDeleteConfirm(true)}
-                            className="w-full p-4 text-left flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors"
-                        >
-                            <Trash2 size={20} />
-                            <span className="font-medium">Delete Chat</span>
-                        </button>
+
+                        {/* Archive/Delete - Only for existing contacts */}
+                        {isContact && (
+                            <>
+                                <button
+                                    onClick={handleToggleArchive}
+                                    className={`w-full p-4 text-left flex items-center gap-3 transition-colors ${isArchived
+                                        ? 'text-blue-600 hover:bg-blue-50'
+                                        : 'text-gray-600 hover:bg-gray-50'
+                                        }`}
+                                >
+                                    {isArchived ? (
+                                        <>
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                                            </svg>
+                                            <span className="font-medium">Unarchive Chat</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                                            </svg>
+                                            <span className="font-medium">Archive Chat</span>
+                                        </>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => setShowDeleteConfirm(true)}
+                                    className="w-full p-4 text-left flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors"
+                                >
+                                    <Trash2 size={20} />
+                                    <span className="font-medium">Delete Chat</span>
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
 

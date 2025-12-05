@@ -167,7 +167,25 @@ class MinimaService {
                         }
 
                         // Resolve after the most critical table is ready
-                        resolve();
+                        // Create PROFILES table for local storage of extended profile data
+                        const createProfilesTable = `
+            CREATE TABLE IF NOT EXISTS PROFILES (
+                pubkey VARCHAR(512) PRIMARY KEY,
+                username VARCHAR(255),
+                location VARCHAR(255),
+                website VARCHAR(255),
+                bio TEXT,
+                last_seen BIGINT
+            )`;
+
+                        MDS.sql(createProfilesTable, (res: any) => {
+                            if (!res.status) {
+                                console.error("❌ [DB] Failed to create PROFILES table:", res.error);
+                            } else {
+                                console.log("✅ [DB] PROFILES table initialized");
+                            }
+                            resolve();
+                        });
                     });
                 }
             });

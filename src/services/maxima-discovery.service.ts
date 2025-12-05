@@ -9,6 +9,7 @@ export interface ProfileBroadcast {
     pubkey: string;
     description: string;
     timestamp: number;
+    extraData?: UserProfile['extraData'];
     sig: string;
 }
 
@@ -28,7 +29,8 @@ class MaximaDiscoveryService {
             username: profile.username,
             pubkey: profile.pubkey,
             description: profile.description,
-            timestamp: profile.timestamp
+            timestamp: profile.timestamp,
+            extraData: profile.extraData
         };
 
         // Sign the message
@@ -106,8 +108,31 @@ class MaximaDiscoveryService {
                     description: message.description,
                     timestamp: message.timestamp,
                     lastSeen: Date.now() / 1000, // Current time
-                    isMyProfile: false // Will be determined by the receiver
+                    isMyProfile: false, // Will be determined by the receiver
+                    extraData: message.extraData
                 };
+
+                // Save extended profile data to local DB
+                if (message.extraData) {
+                    const extraData = message.extraData;
+                    const location = extraData.location ? `'${extraData.location.replace(/'/g, "''")}'` : 'NULL';
+                    const website = extraData.website ? `'${extraData.website.replace(/'/g, "''")}'` : 'NULL';
+                    const bio = extraData.bio ? `'${extraData.bio.replace(/'/g, "''")}'` : 'NULL';
+
+                    const sql = `
+                        MERGE INTO PROFILES (pubkey, username, location, website, bio, last_seen)
+                        KEY (pubkey)
+                        VALUES ('${message.pubkey}', '${message.username.replace(/'/g, "''")}', ${location}, ${website}, ${bio}, ${Date.now()})
+                    `;
+
+                    MDS.sql(sql, (res: any) => {
+                        if (res.status) {
+                            console.log(`✅ [Maxima] Saved extended profile for ${message.username} to local DB`);
+                        } else {
+                            console.error("❌ [Maxima] Failed to save extended profile:", res.error);
+                        }
+                    });
+                }
 
                 // Notify all callbacks
                 this.callbacks.forEach(cb => cb(profile));
