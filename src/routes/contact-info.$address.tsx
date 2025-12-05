@@ -76,9 +76,55 @@ function ContactInfoPage() {
                 // Always check Community Discovery to get extended info
                 console.log("[ContactInfo] Checking Community Discovery...");
                 const profiles = await DiscoveryService.getProfiles();
-                const profile = profiles.find(
+                let profile = profiles.find(
                     (p) => p.maxAddress === address || p.pubkey === address || (c && p.pubkey === c.publickey)
                 );
+
+                // Check local DB for extended profile data
+                const pubkeyToCheck = profile?.pubkey || c?.publickey;
+                if (pubkeyToCheck) {
+                    console.log("[ContactInfo] Checking local DB for extended data...");
+                    const localData = await new Promise<any>((resolve) => {
+                        MDS.sql(`SELECT * FROM PROFILES WHERE pubkey = '${pubkeyToCheck}'`, (sqlRes: any) => {
+                            if (sqlRes.status && sqlRes.rows && sqlRes.rows.length > 0) {
+                                console.log("[ContactInfo] ✅ Found extended data in local DB");
+                                resolve(sqlRes.rows[0]);
+                            } else {
+                                resolve(null);
+                            }
+                        });
+                    });
+
+                    if (localData) {
+                        if (profile) {
+                            // Merge local data with Discovery profile
+                            profile = {
+                                ...profile,
+                                extraData: {
+                                    location: localData.LOCATION || profile.extraData?.location,
+                                    website: localData.WEBSITE || profile.extraData?.website,
+                                    bio: localData.BIO || profile.extraData?.bio
+                                }
+                            };
+                        } else if (c) {
+                            // Create profile from contact + local data
+                            profile = {
+                                username: c.extradata?.name || 'Unknown',
+                                pubkey: c.publickey,
+                                description: c.extradata?.description || '',
+                                timestamp: 0,
+                                lastSeen: c.lastseen || 0,
+                                isMyProfile: false,
+                                extraData: {
+                                    location: localData.LOCATION,
+                                    website: localData.WEBSITE,
+                                    bio: localData.BIO
+                                }
+                            };
+                        }
+                    }
+                }
+
 
                 if (profile) {
                     console.log("[ContactInfo] ✅ Found in Community Discovery:", profile);
