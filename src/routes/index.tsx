@@ -1,7 +1,7 @@
 // index.tsx
 import { createFileRoute } from "@tanstack/react-router"
-import ChatList from "../components/chat/ChatList"
+import ChatsAndGroups from "../components/chat/ChatsAndGroups"
 
-export const Route = createFileRoute("/")(({
-  component: () => <ChatList />,
-}))
+export const Route = createFileRoute("/")({
+  component: () => <ChatsAndGroups />,
+})

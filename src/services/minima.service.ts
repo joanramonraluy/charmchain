@@ -184,7 +184,67 @@ class MinimaService {
                             } else {
                                 console.log("✅ [DB] PROFILES table initialized");
                             }
-                            resolve();
+
+                            // Create GROUPS table for group chat functionality
+                            const createGroupsTable = `
+            CREATE TABLE IF NOT EXISTS GROUPS (
+                group_id VARCHAR(256) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                creator_publickey VARCHAR(512) NOT NULL,
+                created_date BIGINT NOT NULL,
+                avatar TEXT,
+                description TEXT
+            )`;
+
+                            MDS.sql(createGroupsTable, (res: any) => {
+                                if (!res.status) {
+                                    console.error("❌ [DB] Failed to create GROUPS table:", res.error);
+                                } else {
+                                    console.log("✅ [DB] GROUPS table initialized");
+                                }
+
+                                // Create GROUP_MEMBERS table
+                                const createGroupMembersTable = `
+            CREATE TABLE IF NOT EXISTS GROUP_MEMBERS (
+                group_id VARCHAR(256) NOT NULL,
+                publickey VARCHAR(512) NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                joined_date BIGINT NOT NULL,
+                role VARCHAR(32) DEFAULT 'member',
+                PRIMARY KEY (group_id, publickey)
+            )`;
+
+                                MDS.sql(createGroupMembersTable, (res: any) => {
+                                    if (!res.status) {
+                                        console.error("❌ [DB] Failed to create GROUP_MEMBERS table:", res.error);
+                                    } else {
+                                        console.log("✅ [DB] GROUP_MEMBERS table initialized");
+                                    }
+
+                                    // Create GROUP_MESSAGES table
+                                    const createGroupMessagesTable = `
+            CREATE TABLE IF NOT EXISTS GROUP_MESSAGES (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                group_id VARCHAR(256) NOT NULL,
+                sender_publickey VARCHAR(512) NOT NULL,
+                sender_username VARCHAR(255) NOT NULL,
+                type VARCHAR(32) NOT NULL,
+                message TEXT,
+                filedata TEXT,
+                date BIGINT NOT NULL,
+                read INTEGER DEFAULT 0
+            )`;
+
+                                    MDS.sql(createGroupMessagesTable, (res: any) => {
+                                        if (!res.status) {
+                                            console.error("❌ [DB] Failed to create GROUP_MESSAGES table:", res.error);
+                                        } else {
+                                            console.log("✅ [DB] GROUP_MESSAGES table initialized");
+                                        }
+                                        resolve();
+                                    });
+                                });
+                            });
                         });
                     });
                 }
@@ -684,7 +744,8 @@ class MinimaService {
         }
 
         // Check if the message is for our application (case-insensitive)
-        if (maximaData.application.toLowerCase() === "charmchain") {
+        const app = maximaData.application.toLowerCase();
+        if (app === "charmchain" || app === "charmchain-group") {
             const from = maximaData.from;
             let datastr = maximaData.data;
 
@@ -696,7 +757,17 @@ class MinimaService {
             }
 
             try {
-                const json = JSON.parse(datastr) as IncomingMessagePayload;
+                const json = JSON.parse(datastr) as any;
+
+                // Check if this is a group message (by app name OR content)
+                if (app === "charmchain-group" || (json.messageType && json.groupId)) {
+                    console.log("👥 [MAXIMA] Group message detected:", json.messageType);
+                    // Import dynamically to avoid circular dependency
+                    import('./group.service').then(({ groupService }) => {
+                        groupService.handleIncomingGroupMessage(json, from);
+                    });
+                    return;
+                }
 
                 if (json.type === "read") {
                     console.log("📖 [MAXIMA] Read receipt received from", from);

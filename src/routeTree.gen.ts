@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as InfoRouteImport } from './routes/info'
 import { Route as DiscoveryRouteImport } from './routes/discovery'
+import { Route as CreateGroupRouteImport } from './routes/create-group'
 import { Route as ContactsRouteImport } from './routes/contacts'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as GroupsGroupIdRouteImport } from './routes/groups.$groupId'
 import { Route as ContactInfoAddressRouteImport } from './routes/contact-info.$address'
 import { Route as ChatAddressRouteImport } from './routes/chat/$address'
 
@@ -32,6 +34,11 @@ const DiscoveryRoute = DiscoveryRouteImport.update({
   path: '/discovery',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CreateGroupRoute = CreateGroupRouteImport.update({
+  id: '/create-group',
+  path: '/create-group',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ContactsRoute = ContactsRouteImport.update({
   id: '/contacts',
   path: '/contacts',
@@ -40,6 +47,11 @@ const ContactsRoute = ContactsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GroupsGroupIdRoute = GroupsGroupIdRouteImport.update({
+  id: '/groups/$groupId',
+  path: '/groups/$groupId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactInfoAddressRoute = ContactInfoAddressRouteImport.update({
@@ -56,69 +68,83 @@ const ChatAddressRoute = ChatAddressRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
+  '/create-group': typeof CreateGroupRoute
   '/discovery': typeof DiscoveryRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
   '/chat/$address': typeof ChatAddressRoute
   '/contact-info/$address': typeof ContactInfoAddressRoute
+  '/groups/$groupId': typeof GroupsGroupIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
+  '/create-group': typeof CreateGroupRoute
   '/discovery': typeof DiscoveryRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
   '/chat/$address': typeof ChatAddressRoute
   '/contact-info/$address': typeof ContactInfoAddressRoute
+  '/groups/$groupId': typeof GroupsGroupIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/contacts': typeof ContactsRoute
+  '/create-group': typeof CreateGroupRoute
   '/discovery': typeof DiscoveryRoute
   '/info': typeof InfoRoute
   '/settings': typeof SettingsRoute
   '/chat/$address': typeof ChatAddressRoute
   '/contact-info/$address': typeof ContactInfoAddressRoute
+  '/groups/$groupId': typeof GroupsGroupIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/contacts'
+    | '/create-group'
     | '/discovery'
     | '/info'
     | '/settings'
     | '/chat/$address'
     | '/contact-info/$address'
+    | '/groups/$groupId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/contacts'
+    | '/create-group'
     | '/discovery'
     | '/info'
     | '/settings'
     | '/chat/$address'
     | '/contact-info/$address'
+    | '/groups/$groupId'
   id:
     | '__root__'
     | '/'
     | '/contacts'
+    | '/create-group'
     | '/discovery'
     | '/info'
     | '/settings'
     | '/chat/$address'
     | '/contact-info/$address'
+    | '/groups/$groupId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ContactsRoute: typeof ContactsRoute
+  CreateGroupRoute: typeof CreateGroupRoute
   DiscoveryRoute: typeof DiscoveryRoute
   InfoRoute: typeof InfoRoute
   SettingsRoute: typeof SettingsRoute
   ChatAddressRoute: typeof ChatAddressRoute
   ContactInfoAddressRoute: typeof ContactInfoAddressRoute
+  GroupsGroupIdRoute: typeof GroupsGroupIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -144,6 +170,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DiscoveryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/create-group': {
+      id: '/create-group'
+      path: '/create-group'
+      fullPath: '/create-group'
+      preLoaderRoute: typeof CreateGroupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/contacts': {
       id: '/contacts'
       path: '/contacts'
@@ -156,6 +189,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/groups/$groupId': {
+      id: '/groups/$groupId'
+      path: '/groups/$groupId'
+      fullPath: '/groups/$groupId'
+      preLoaderRoute: typeof GroupsGroupIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact-info/$address': {
@@ -178,11 +218,13 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ContactsRoute: ContactsRoute,
+  CreateGroupRoute: CreateGroupRoute,
   DiscoveryRoute: DiscoveryRoute,
   InfoRoute: InfoRoute,
   SettingsRoute: SettingsRoute,
   ChatAddressRoute: ChatAddressRoute,
   ContactInfoAddressRoute: ContactInfoAddressRoute,
+  GroupsGroupIdRoute: GroupsGroupIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

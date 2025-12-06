@@ -12,6 +12,7 @@ export const appContext = createContext<{
   userName: string
   userAvatar: string
   writeMode: boolean
+  myPublicKey: string
   updateUserProfile: (name: string, avatar: string) => void
   refreshWriteMode: () => Promise<void>
 }>({
@@ -21,6 +22,7 @@ export const appContext = createContext<{
   userName: "User",
   userAvatar: defaultAvatar,
   writeMode: false,
+  myPublicKey: "",
   updateUserProfile: () => { },
   refreshWriteMode: async () => { }
 })
@@ -33,6 +35,7 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const [userName, setUserName] = useState("User")
   const [userAvatar, setUserAvatar] = useState(defaultAvatar)
   const [writeMode, setWriteMode] = useState(false)
+  const [myPublicKey, setMyPublicKey] = useState("")
 
   // Fetch user profile from Maxima
   const fetchUserProfile = async () => {
@@ -43,8 +46,10 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
       if (info) {
         const name = info.name || "User"
         const icon = info.icon ? decodeURIComponent(info.icon) : defaultAvatar
+        const pubkey = info.publickey || ""
 
         setUserName(name)
+        setMyPublicKey(pubkey)
         // Check if it's a valid data URL, and not a URL ending in /0x00 (no photo)
         if (icon.startsWith("data:image") && !icon.includes("/0x00")) {
           setUserAvatar(icon)
@@ -171,6 +176,7 @@ const AppProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
     userName,
     userAvatar,
     writeMode,
+    myPublicKey,
     updateUserProfile,
     refreshWriteMode,
   }

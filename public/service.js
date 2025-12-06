@@ -113,7 +113,8 @@ MDS.init(function (msg) {
         MDS.log("[ServiceWorker] MAXIMA event received. App: " + msg.data.application);
 
         // Is it for charmchain?
-        if (msg.data.application && msg.data.application.toLowerCase() == "charmchain") {
+        if (msg.data.application && (msg.data.application.toLowerCase() == "charmchain" || msg.data.application.toLowerCase() == "charmchain-group")) {
+            var app = msg.data.application.toLowerCase();
 
             // Relevant data
             var pubkey = msg.data.from;
@@ -128,7 +129,84 @@ MDS.init(function (msg) {
             try {
                 var maxjson = JSON.parse(jsonstr);
 
-                MDS.log("[ServiceWorker] Parsed message: " + JSON.stringify(maxjson));
+                MDS.log("[ServiceWorker] Parsed message from " + app + ": " + JSON.stringify(maxjson));
+
+                // Handle Group Messages (charmchain-group or legacy with groupId)
+                if (app === "charmchain-group" || (maxjson.groupId && maxjson.messageType === "group_message")) {
+                    MDS.log("[ServiceWorker] Processing Group Message");
+
+                    // Ensure GROUP_MESSAGES table exists (in case service.js runs before app)
+                    // We assume it exists if app ran. If not, inserting will fail, but that's acceptable for now.
+
+                    // URL encode the message
+                    var encoded = encodeURIComponent(maxjson.message || "").replace(/'/g, "%27");
+                    var messageTimestamp = maxjson.timestamp || Date.now();
+
+                    var groupMsgSql = "INSERT INTO GROUP_MESSAGES (group_id, sender_publickey, sender_username, type, message, filedata, date, read) VALUES "
+                        + "('" + maxjson.groupId + "','" + pubkey + "','" + maxjson.senderUsername + "','" + (maxjson.type || "text") + "','" + encoded + "','" + (maxjson.filedata || "") + "'," + messageTimestamp + ", 0)";
+
+                    MDS.sql(groupMsgSql, function (res) {
+                        if (res.status) {
+                            MDS.log("[ServiceWorker] Group message saved to DB");
+                        } else {
+                            MDS.log("[ServiceWorker] Failed to save group message: " + res.error);
+                        }
+                    });
+
+                    // Do NOT continue for group messages (avoids polluting CHAT_MESSAGES)
+                    return;
+                }
+
+                // Handle Group Invites (charmchain-group)
+                if (app === "charmchain-group" && maxjson.messageType === "group_invite") {
+                    MDS.log("[ServiceWorker] Processing Group Invite");
+
+                    // 1. Create group in DB
+                    // Check if group exists first? SQL `INSERT OR IGNORE` or just try INSERT and ignore error
+                    // Using INSERT directly, if it fails due to PK constraint, that's fine (group already exists)
+                    var createGroupSql = "INSERT INTO GROUPS (group_id, name, creator_publickey, created_date, description) VALUES "
+                        + "('" + maxjson.groupId + "','" + maxjson.groupName.replace(/'/g, "''") + "','" + pubkey + "'," + maxjson.timestamp + ",'" + (maxjson.description || "").replace(/'/g, "''") + "')";
+
+                    MDS.sql(createGroupSql, function (res) {
+                        MDS.log("[ServiceWorker] Group created (or exists): " + JSON.stringify(res));
+
+                        // 2. Add members
+                        if (maxjson.members) {
+                            var members = maxjson.members;
+                            // Recursive function to add members
+                            var addMember = function (idx) {
+                                if (idx >= members.length) return;
+                                var m = members[idx];
+                                var role = (m.publickey === pubkey) ? 'creator' : 'member';
+
+                                var addMemberSql = "INSERT INTO GROUP_MEMBERS (group_id, publickey, username, joined_date, role) VALUES "
+                                    + "('" + maxjson.groupId + "','" + m.publickey + "','" + (m.username || 'Unknown').replace(/'/g, "''") + "'," + maxjson.timestamp + ",'" + role + "')";
+
+                                MDS.sql(addMemberSql, function () {
+                                    addMember(idx + 1);
+                                });
+                            };
+                            addMember(0);
+                        }
+                    });
+
+                    return;
+                }
+
+                // Handle Group Member Added/Removed (charmchain-group)
+                if (app === "charmchain-group" && (maxjson.messageType === "group_member_added" || maxjson.messageType === "group_member_removed")) {
+                    MDS.log("[ServiceWorker] Processing Group Member Update: " + maxjson.messageType);
+
+                    if (maxjson.messageType === "group_member_added") {
+                        var addMemberSql = "INSERT INTO GROUP_MEMBERS (group_id, publickey, username, joined_date, role) VALUES "
+                            + "('" + maxjson.groupId + "','" + maxjson.memberPublickey + "','" + (maxjson.memberUsername || 'Unknown').replace(/'/g, "''") + "'," + maxjson.timestamp + ",'member')";
+                        MDS.sql(addMemberSql);
+                    } else {
+                        var removeMemberSql = "DELETE FROM GROUP_MEMBERS WHERE group_id='" + maxjson.groupId + "' AND publickey='" + maxjson.memberPublickey + "'";
+                        MDS.sql(removeMemberSql);
+                    }
+                    return;
+                }
 
                 // Handle read receipts
                 if (maxjson.type === "read") {
