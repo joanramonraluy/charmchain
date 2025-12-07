@@ -1,9 +1,11 @@
 // src/routes/groups.$groupId.tsx
 import { useEffect, useRef, useState, useContext } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { MDS } from "@minima-global/mds";
 import { appContext } from "../AppContext";
 import { Trash2, Info } from "lucide-react";
 import { groupService } from "../services/group.service";
+import MessageBubble from "../components/chat/MessageBubble";
 
 export const Route = createFileRoute("/groups/$groupId")({
   component: ChatPage,
@@ -30,6 +32,7 @@ interface ParsedMessage {
   timestamp?: number;
   status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'zombie';
   tokenAmount?: { amount: string; tokenName: string }; // For token transfer messages
+  senderPublicKey?: string;
 }
 
 
@@ -48,16 +51,18 @@ function ChatPage() {
       return true;
     });
   };
+
   const { groupId: address } = Route.useParams();
+  const navigate = useNavigate();
   const [contact, setContact] = useState<Contact | null>(null);
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
+  const [contactsMap, setContactsMap] = useState<Record<string, { name: string; icon?: string }>>({});
   const [input, setInput] = useState("");
   const [showMenu, setShowMenu] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
   const { userName, myPublicKey } = useContext(appContext);
   const isLoadingMessages = useRef(false); // Flag to prevent simultaneous loads
 
@@ -121,6 +126,7 @@ function ChatPage() {
             timestamp: Number(row.DATE || 0),
             status: 'sent' as const,
             tokenAmount: undefined,
+            senderPublicKey: row.SENDER_PUBLICKEY,
           };
 
           return parsed;
@@ -128,6 +134,17 @@ function ChatPage() {
 
         const deduplicatedMessages = deduplicateMessages(parsedMessages);
         setMessages(deduplicatedMessages);
+
+        // Extract unique sender public keys (excluding self)
+        const uniqueSenders = Array.from(new Set(deduplicatedMessages
+          .filter(m => !m.fromMe && (m as any).senderPublicKey)
+          .map(m => (m as any).senderPublicKey as string)
+        ));
+
+        // Fetch missing contacts
+        if (uniqueSenders.length > 0) {
+          fetchContactsForKeys(uniqueSenders);
+        }
       }
     } catch (err) {
       console.error("Failed to load group messages:", err);
@@ -240,6 +257,47 @@ function ChatPage() {
       console.error("❌ Failed to delete group:", err);
     }
   };
+
+  /* ----------------------------------------------------------------------------
+      FETCH CONTACTS HELPER
+  ---------------------------------------------------------------------------- */
+  const fetchContactsForKeys = async (publicKeys: string[]) => {
+    // Filter out keys we already have
+    const missingKeys = publicKeys.filter(key => !contactsMap[key]);
+    if (missingKeys.length === 0) return;
+
+    try {
+      // Get all contacts from MAXIMA
+      MDS.cmd.maxcontacts((res: any) => {
+        if (res.status && res.response && res.response.contacts) {
+          const newContacts: Record<string, { name: string; icon?: string }> = {};
+
+          res.response.contacts.forEach((c: any) => {
+            if (missingKeys.includes(c.publickey)) {
+              let icon = c.extradata?.icon;
+              if (icon && typeof icon === 'string' && icon.startsWith('data%3A')) {
+                try {
+                  icon = decodeURIComponent(icon);
+                } catch (e) {
+                  console.warn("Failed to decode contact icon", e);
+                }
+              }
+
+              newContacts[c.publickey] = {
+                name: c.extradata?.name || c.currentaddress || "Unknown",
+                icon: icon
+              };
+            }
+          });
+
+          setContactsMap(prev => ({ ...prev, ...newContacts }));
+        }
+      });
+    } catch (err) {
+      console.error("Failed to fetch contacts:", err);
+    }
+  };
+
 
 
   /* ----------------------------------------------------------------------------
@@ -405,14 +463,20 @@ function ChatPage() {
                   </span>
                 </div>
               )}
-              {/* Simple message bubble */}
+              {/* Message Bubble with Sender Info */}
               <div className={`flex ${msg.fromMe ? 'justify-end' : 'justify-start'} mb-2`}>
-                <div className={`max-w-[70%] rounded-lg px-4 py-2 ${msg.fromMe ? 'bg-[#0088cc] text-white' : 'bg-white text-gray-900'} shadow-sm`}>
-                  <p className="text-sm">{msg.text}</p>
-                  <span className="text-xs opacity-70 mt-1 block">
-                    {new Date(msg.timestamp || 0).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
+                <MessageBubble
+                  fromMe={msg.fromMe}
+                  text={msg.text}
+                  charm={msg.charm}
+                  amount={msg.amount}
+                  timestamp={msg.timestamp}
+                  status={msg.status}
+                  tokenAmount={msg.tokenAmount}
+                  senderName={!msg.fromMe && msg.senderPublicKey ? (contactsMap[msg.senderPublicKey]?.name || msg.senderPublicKey.substring(0, 6)) : undefined}
+                  senderImage={!msg.fromMe && msg.senderPublicKey ? contactsMap[msg.senderPublicKey]?.icon : undefined}
+                  onAvatarClick={!msg.fromMe && msg.senderPublicKey ? () => navigate({ to: `/contact-info/${msg.senderPublicKey}`, search: { returnTo: `/groups/${address}` } }) : undefined}
+                />
               </div>
             </div>
           );

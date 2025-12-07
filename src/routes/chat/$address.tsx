@@ -656,7 +656,7 @@ function ChatPage() {
             }`}
           onClick={() => {
             if (appStatus !== 'checking' && appStatus !== 'not_found') {
-              navigate({ to: `/contact-info/${address}` });
+              navigate({ to: `/contact-info/${address}`, search: { returnTo: `/chat/${address}` } });
             }
           }}
         >
@@ -722,7 +722,7 @@ function ChatPage() {
                 className="flex items-center gap-3 w-full p-3 hover:bg-gray-700 md:hover:bg-gray-100 text-gray-300 md:text-gray-700 rounded-t-lg transition-colors text-left"
                 onClick={() => {
                   setShowMenu(false);
-                  navigate({ to: `/contact-info/${address}` });
+                  navigate({ to: `/contact-info/${address}`, search: { returnTo: `/chat/${address}` } });
                 }}
               >
                 <Info size={18} />

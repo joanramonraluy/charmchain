@@ -1,11 +1,21 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { MDS } from "@minima-global/mds";
-import { ArrowLeft, Copy, Check, Trash2, RefreshCw, UserPlus, MessageCircle, Globe, MapPin } from "lucide-react";
+import { ArrowLeft, Copy, Check, RefreshCw, UserPlus, Globe, MapPin } from "lucide-react";
 import { minimaService } from "../services/minima.service";
 import { DiscoveryService, UserProfile } from "../services/discovery.service";
 
+// Define search params validation
+interface ContactInfoSearch {
+    returnTo?: string;
+}
+
 export const Route = createFileRoute("/contact-info/$address")({
+    validateSearch: (search: Record<string, unknown>): ContactInfoSearch => {
+        return {
+            returnTo: search.returnTo as string | undefined,
+        };
+    },
     component: ContactInfoPage,
 });
 
@@ -25,14 +35,14 @@ interface Contact {
 
 function ContactInfoPage() {
     const { address } = Route.useParams();
+    const search = Route.useSearch();
     const navigate = useNavigate();
     const [contact, setContact] = useState<Contact | null>(null);
     const [discoveryProfile, setDiscoveryProfile] = useState<UserProfile | null>(null);
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [appStatus, setAppStatus] = useState<'unknown' | 'checking' | 'installed' | 'not_found'>('unknown');
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-    const [isArchived, setIsArchived] = useState(false);
+
     const [isContact, setIsContact] = useState(false);
     const [addingContact, setAddingContact] = useState(false);
 
@@ -145,28 +155,7 @@ function ContactInfoPage() {
         fetchContact();
     }, [address]);
 
-    // Check if chat is archived
-    useEffect(() => {
-        if (!contact?.publickey) return;
 
-        const checkStatus = async () => {
-            const status = await minimaService.getChatStatus(contact.publickey);
-            setIsArchived(status.archived);
-        };
-
-        checkStatus();
-
-        // Listen for archive status changes
-        const handleArchiveChange = () => {
-            checkStatus();
-        };
-
-        minimaService.onArchiveStatusChange(handleArchiveChange);
-
-        return () => {
-            minimaService.removeArchiveStatusCallback(handleArchiveChange);
-        };
-    }, [contact]);
 
     // Check app status when contact is loaded
     useEffect(() => {
@@ -209,19 +198,7 @@ function ContactInfoPage() {
         setTimeout(() => setCopiedField(null), 2000);
     };
 
-    const handleDeleteChat = async () => {
-        if (!contact?.publickey) return;
 
-        try {
-            await minimaService.deleteAllMessages(contact.publickey);
-            console.log("✅ Chat deleted successfully");
-            // Navigate back to home/chat list
-            navigate({ to: '/' });
-        } catch (err) {
-            console.error("❌ Failed to delete chat:", err);
-            alert("Failed to delete chat. Please try again.");
-        }
-    };
 
     const handleAddContact = async () => {
         if (!discoveryProfile) return;
@@ -256,57 +233,9 @@ function ContactInfoPage() {
         }
     };
 
-    const handleGoChat = async () => {
-        const pubkey = contact?.publickey || discoveryProfile?.pubkey;
-        if (!pubkey) return;
 
-        // If not a contact yet, add them first
-        if (!isContact && discoveryProfile) {
-            try {
-                setAddingContact(true);
-                await new Promise((resolve, reject) => {
-                    MDS.cmd.maxcontacts({
-                        params: {
-                            action: "add",
-                            contact: discoveryProfile.maxAddress || discoveryProfile.pubkey
-                        } as any
-                    }, (res: any) => {
-                        if (res.status) resolve(res);
-                        else reject(res.error);
-                    });
-                });
-                setIsContact(true);
-            } catch (err) {
-                console.error("❌ Failed to auto-add contact:", err);
-                // Continue anyway, maybe they just want to see if they can chat? 
-                // But usually chat requires contact. Let's alert.
-                alert("Could not add contact. Chat might not work correctly.");
-            } finally {
-                setAddingContact(false);
-            }
-        }
 
-        navigate({ to: `/chat/${address}` });
-    };
 
-    const handleToggleArchive = async () => {
-        if (!contact?.publickey) return;
-
-        try {
-            if (isArchived) {
-                await minimaService.unarchiveChat(contact.publickey);
-                setIsArchived(false);
-                console.log("✅ Chat unarchived");
-            } else {
-                await minimaService.archiveChat(contact.publickey);
-                setIsArchived(true);
-                console.log("✅ Chat archived");
-            }
-        } catch (err) {
-            console.error("❌ Failed to toggle archive:", err);
-            alert("Failed to update archive status. Please try again.");
-        }
-    };
 
     if (loading) {
         return (
@@ -340,7 +269,13 @@ function ContactInfoPage() {
             {/* Header */}
             <div className="bg-white px-4 py-3 flex items-center gap-3 shadow-sm sticky top-0 z-10">
                 <button
-                    onClick={() => navigate({ to: `/chat/${address}` })}
+                    onClick={() => {
+                        if (search.returnTo) {
+                            navigate({ to: search.returnTo });
+                        } else {
+                            navigate({ to: '/' });
+                        }
+                    }}
                     className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600"
                 >
                     <ArrowLeft size={24} />
@@ -552,86 +487,15 @@ function ContactInfoPage() {
                             </button>
                         )}
 
-                        {/* Go Chat Button */}
-                        <button
-                            onClick={handleGoChat}
-                            disabled={addingContact}
-                            className="w-full p-4 text-left flex items-center gap-3 text-blue-600 hover:bg-blue-50 transition-colors"
-                        >
-                            <MessageCircle size={20} />
-                            <span className="font-medium">
-                                {!isContact && !discoveryProfile?.isMyProfile ? "Add & Chat" : "Go to Chat"}
-                            </span>
-                        </button>
 
-                        {/* Archive/Delete - Only for existing contacts */}
-                        {isContact && (
-                            <>
-                                <button
-                                    onClick={handleToggleArchive}
-                                    className={`w-full p-4 text-left flex items-center gap-3 transition-colors ${isArchived
-                                        ? 'text-blue-600 hover:bg-blue-50'
-                                        : 'text-gray-600 hover:bg-gray-50'
-                                        }`}
-                                >
-                                    {isArchived ? (
-                                        <>
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                                            </svg>
-                                            <span className="font-medium">Unarchive Chat</span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                                            </svg>
-                                            <span className="font-medium">Archive Chat</span>
-                                        </>
-                                    )}
-                                </button>
-                                <button
-                                    onClick={() => setShowDeleteConfirm(true)}
-                                    className="w-full p-4 text-left flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors"
-                                >
-                                    <Trash2 size={20} />
-                                    <span className="font-medium">Delete Chat</span>
-                                </button>
-                            </>
-                        )}
+
+
                     </div>
                 </div>
 
             </div>
 
-            {/* Delete Confirmation Dialog */}
-            {showDeleteConfirm && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 animate-in zoom-in-95 fade-in duration-200">
-                        <h3 className="text-lg font-bold text-gray-900 mb-2">Delete Chat?</h3>
-                        <p className="text-gray-600 mb-6">
-                            This will permanently delete all messages in this conversation. This action cannot be undone.
-                        </p>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setShowDeleteConfirm(false)}
-                                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setShowDeleteConfirm(false);
-                                    handleDeleteChat();
-                                }}
-                                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
-                            >
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+
         </div>
     );
 }

@@ -15,6 +15,9 @@ interface MessageBubbleProps {
   timestamp?: number;
   status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'zombie';
   tokenAmount?: { amount: string; tokenName: string };
+  senderName?: string;
+  senderImage?: string;
+  onAvatarClick?: () => void;
 }
 
 // Flying money emoji component
@@ -72,7 +75,7 @@ const ConfettiParticle = ({ delay = 0, color }: { delay?: number; color: string 
   );
 };
 
-export default function MessageBubble({ fromMe, text, charm, amount, timestamp, status, tokenAmount }: MessageBubbleProps) {
+export default function MessageBubble({ fromMe, text, charm, amount, timestamp, status, tokenAmount, senderName, senderImage, onAvatarClick }: MessageBubbleProps) {
   const isCharm = !!charm;
   const isTokenTransfer = !!tokenAmount;
   const [showCelebration, setShowCelebration] = useState(false);
@@ -118,22 +121,9 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
   // Pulsing animation for pending state
   const isPending = status === 'pending';
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{
-        opacity: isPending ? 0.85 : 1,
-        y: 0,
-        scale: isPending ? [1, 1.02, 1] : 1
-      }}
-      transition={isPending ? {
-        opacity: { duration: 0.3 },
-        y: { duration: 0.3 },
-        scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
-      } : { duration: 0.3 }}
-      className={`flex flex-col max-w-[80%] mb-2 ${alignment} relative`}
-    >
-      {/* Flying money animation for token transfers */}
+  // Helper to render the bubble content
+  const renderBubbleContent = () => (
+    <>
       <AnimatePresence>
         {isTokenTransfer && status === 'pending' && (
           <>
@@ -144,7 +134,6 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
         )}
       </AnimatePresence>
 
-      {/* Celebration confetti when sent */}
       <AnimatePresence>
         {showCelebration && (
           <>
@@ -300,6 +289,54 @@ export default function MessageBubble({ fromMe, text, charm, amount, timestamp, 
           )}
         </div>
       </div>
+    </>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{
+        opacity: isPending ? 0.85 : 1,
+        y: 0,
+        scale: isPending ? [1, 1.02, 1] : 1
+      }}
+      transition={isPending ? {
+        opacity: { duration: 0.3 },
+        y: { duration: 0.3 },
+        scale: { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+      } : { duration: 0.3 }}
+      className={`flex flex-col max-w-[80%] mb-2 ${alignment} relative`}
+    >
+      {!fromMe && senderName ? (
+        <div className="flex items-end gap-2 max-w-full">
+          {/* Avatar */}
+          <div
+            className={`flex-shrink-0 mb-1 ${onAvatarClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+            onClick={onAvatarClick}
+          >
+            {senderImage ? (
+              <img
+                src={senderImage}
+                alt={senderName}
+                className="w-8 h-8 rounded-full bg-gray-200 object-cover border border-gray-100"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs border border-indigo-200">
+                {senderName.charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col items-start min-w-0">
+            <span className="text-[11px] text-gray-500 ml-1 mb-0.5 truncate max-w-[200px]">
+              {senderName}
+            </span>
+            {renderBubbleContent()}
+          </div>
+        </div>
+      ) : (
+        renderBubbleContent()
+      )}
     </motion.div>
   );
 }
